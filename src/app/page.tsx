@@ -26,6 +26,7 @@ import { generateAndCheckSeedPhrases, type GenerateAndCheckSeedPhrasesOutput } f
 
 interface ResultRow extends ProcessedWalletInfo {
   isLoading: boolean;
+  wordCount?: number; // Added optional wordCount
 }
 
 const MAX_DISPLAYED_RESULTS = 500; // Max results to keep in the table for performance
@@ -129,6 +130,7 @@ export default function Home() {
         error: null,
         derivationError: null,
         isLoading: true,
+        wordCount: phrase.split(' ').length, // Estimate word count for manual input
       }))
     );
 
@@ -139,7 +141,7 @@ export default function Home() {
         blockcypherApiKeyInput || undefined
       );
 
-      setResults(processedData.map(data => ({ ...data, isLoading: false })));
+      setResults(processedData.map(data => ({ ...data, isLoading: false, wordCount: data.seedPhrase.split(' ').length })));
 
       let toastMessage = `Finished processing ${phrases.length} seed phrases. `;
       if (hasEtherscanKey && hasBlockcypherKey) {
@@ -172,11 +174,12 @@ export default function Home() {
 
   const handleManualGenerateAndCheck = async () => {
     setIsProcessingManual(true);
+    addLogMessage(`Manual generation: Requesting ${numSeedPhrasesToGenerate} phrases...`);
     try {
       const input = {
         numSeedPhrases: numSeedPhrasesToGenerate,
-        etherscanApiKey: etherscanApiKeyInput || '',
-        blockcypherApiKey: blockcypherApiKeyInput || '',
+        etherscanApiKey: etherscanApiKeyInputRef.current || '',
+        blockcypherApiKey: blockcypherApiKeyInputRef.current || '',
       };
 
       const generatedData: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
@@ -196,16 +199,19 @@ export default function Home() {
         error: null,
         derivationError: null,
         isLoading: false,
+        wordCount: item.wordCount, // Map wordCount from flow output
       }));
-
-      setResults(prevResults => [...prevResults, ...processedData].slice(-MAX_DISPLAYED_RESULTS));
+      
+      addLogMessage(`Manual generation: Received ${generatedData.length} phrases. Found ${processedData.length} with balance.`);
+      setResults(prevResults => [...processedData, ...prevResults].slice(-MAX_DISPLAYED_RESULTS)); // Prepend new results
 
       toast({
         title: 'Seed Phrases Generated and Checked',
-        description: `Generated and checked ${numSeedPhrasesToGenerate} seed phrases. Found ${processedData.length} with balance.`,
+        description: `Generated ${numSeedPhrasesToGenerate} seed phrases of various lengths. Found ${processedData.length} with balance.`,
       });
     } catch (error: any) {
       console.error("Error generating and checking seed phrases:", error);
+      addLogMessage(`Manual generation error: ${error.message}`);
       toast({
         title: 'Generation and Check Error',
         description: `An error occurred: ${error.message}`,
@@ -241,7 +247,7 @@ export default function Home() {
       return;
     }
     
-    setCurrentGenerationStatus('Running'); // Ensure status is running
+    setCurrentGenerationStatus('Running'); 
 
     const currentNumToGenerate = numSeedPhrasesToGenerateRef.current > 0 ? numSeedPhrasesToGenerateRef.current : 1;
     addLogMessage(`Generating batch of ${currentNumToGenerate} seed phrases... (Total checked: ${checkedPhrasesCount})`);
@@ -270,16 +276,14 @@ export default function Home() {
         error: null,
         derivationError: null,
         isLoading: false,
+        wordCount: item.wordCount, // Map wordCount from flow output
       }));
       
-      // This state update is batched by React, safe to call here.
       setCheckedPhrasesCount(prevCount => prevCount + currentNumToGenerate);
       
       if (processedData.length > 0) {
-        setResults(prevResults => [...prevResults, ...processedData].slice(-MAX_DISPLAYED_RESULTS));
+        setResults(prevResults => [...processedData, ...prevResults].slice(-MAX_DISPLAYED_RESULTS)); // Prepend new results
         addLogMessage(`Found ${processedData.length} wallet(s) with balance in this batch. Results updated.`);
-      } else {
-        // addLogMessage(`Processed batch. No wallets with balance found this time.`); // Can be too noisy
       }
 
     } catch (error: any) {
@@ -288,7 +292,7 @@ export default function Home() {
     }
 
     if (isAutoGeneratingRef.current && !isAutoGenerationPausedRef.current) {
-      timeoutRef.current = setTimeout(runAutoGenerationStep, 1000); // Adjust delay as needed, e.g., 1-2 seconds
+      timeoutRef.current = setTimeout(runAutoGenerationStep, 1000); 
     } else {
        setCurrentGenerationStatus(isAutoGenerationPausedRef.current ? 'Paused' : 'Stopped');
        if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -302,9 +306,9 @@ export default function Home() {
     setIsAutoGenerationPaused(false);
     setCurrentGenerationStatus('Running');
     
-    if (!isAutoGenerationPausedRef.current) { // Only reset count if it's a fresh start, not resume
+    if (!isAutoGenerationPausedRef.current) { 
         setCheckedPhrasesCount(0);
-        setGenerationLogs([]); // Clear logs on new start
+        setGenerationLogs(['Automatic generation started.']); 
     }
 
 
@@ -317,16 +321,14 @@ export default function Home() {
 
   const pauseAutoGenerating = () => {
     addLogMessage('Pausing automatic seed phrase generation.');
-    setIsAutoGenerationPaused(true); // This will be picked up by isAutoGenerationPausedRef
+    setIsAutoGenerationPaused(true); 
     setCurrentGenerationStatus('Paused');
-    // runAutoGenerationStep will not reschedule itself if isAutoGenerationPausedRef is true
-    // If a step is in progress, it will complete.
   };
 
   const stopAutoGenerating = () => {
     addLogMessage('Stopped automatic seed phrase generation.');
     setIsAutoGenerating(false);
-    setIsAutoGenerationPaused(false); // Ensure pause is also false
+    setIsAutoGenerationPaused(false); 
     setCurrentGenerationStatus('Stopped');
     
     isAutoGeneratingRef.current = false;
@@ -339,7 +341,6 @@ export default function Home() {
   };
   
   useEffect(() => {
-    // Cleanup timeout on component unmount
     return () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
@@ -453,7 +454,7 @@ export default function Home() {
                 onClick={handleClearInput}
                 disabled={isProcessingManual || isAutoGenerating || seedPhrasesInput.length === 0}
                 variant="outline"
-                className="w-1/2 sm:w-auto"
+                className="w-full"
                 aria-label="Clear Seed Phrases Input Button"
               >
                 <Eraser className="mr-2 h-4 w-4" />
@@ -471,7 +472,7 @@ export default function Home() {
               disabled={isProcessingManual || isAutoGenerating}
               aria-label="Etherscan API Key Input"
             />
-            <Alert variant="default" className="text-xs mt-2 bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/30 dark:border-blue-700/50 dark:text-blue-300 [&>svg]:text-blue-700 dark:[&>svg]:text-blue-300">
+            <Alert variant="info" className="text-xs mt-2">
               <DatabaseZap className="h-4 w-4" />
               <AlertTitle className="font-semibold">Etherscan API</AlertTitle>
               <AlertDescription>
@@ -489,7 +490,7 @@ export default function Home() {
               disabled={isProcessingManual || isAutoGenerating}
               aria-label="BlockCypher API Key Input"
             />
-            <Alert variant="default" className="text-xs mt-2 bg-purple-50 border-purple-200 text-purple-700 dark:bg-purple-900/30 dark:border-purple-700/50 dark:text-purple-300 [&>svg]:text-purple-700 dark:[&>svg]:text-purple-300">
+            <Alert variant="info" className="text-xs mt-2">
               <DatabaseZap className="h-4 w-4" />
               <AlertTitle className="font-semibold">BlockCypher API</AlertTitle>
               <AlertDescription>
@@ -505,7 +506,7 @@ export default function Home() {
             className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground"
             aria-label="Fetch ETH Balances Button"
           >
-            {isProcessingManual && !isAutoGenerating ? (
+            {isProcessingManual && !isAutoGenerating && currentGenerationStatus !== 'Running' && currentGenerationStatus !== 'Paused' ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Fetching Balances...
@@ -532,18 +533,19 @@ export default function Home() {
 
       <Card className="shadow-lg mb-6">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Terminal className="h-5 w-5" /> Manual Seed Phrase Generation</CardTitle>
+          <CardTitle className="flex items-center gap-2"><ListChecks className="h-5 w-5" /> Manual Seed Phrase Generation</CardTitle>
           <CardDescription>
-            Manually generate a specific number of random seed phrases and check their ETH balances using the API keys above.
+            Manually generate a specific number of random seed phrases (varying lengths: 12, 15, 18, 21, 24 words) and check their ETH balances using the API keys above.
           </CardDescription>
         </CardHeader>
         <CardContent>
              <Input
               type="number"
               min="1"
+              max="1000" // Reasonable upper limit for manual generation
               placeholder="Number of Seed Phrases"
               value={numSeedPhrasesToGenerate.toString()}
-              onChange={(e) => setNumSeedPhrasesToGenerate(Math.max(1, parseInt(e.target.value, 10) || 1))}
+              onChange={(e) => setNumSeedPhrasesToGenerate(Math.max(1, Math.min(1000, parseInt(e.target.value, 10) || 1)))}
               className="text-sm border-input focus:ring-accent focus:border-accent font-mono w-full md:w-1/3"
               disabled={isProcessingManual || isAutoGenerating}
               aria-label="Number of Seed Phrases to Generate Input"
@@ -553,17 +555,17 @@ export default function Home() {
           <Button
             onClick={handleManualGenerateAndCheck}
             disabled={isProcessingManual || isAutoGenerating}
-            className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-primary-foreground"
+            className="w-full sm:w-auto bg-accent hover:bg-accent/90 text-accent-foreground"
             aria-label="Manual Generate and Check Seed Phrases Button"
           >
-            {isProcessingManual && !isAutoGenerating ? (
+            {isProcessingManual && !isAutoGenerating && currentGenerationStatus !== 'Running' && currentGenerationStatus !== 'Paused' ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Generating...
               </>
             ) : (
               <>
-                <SearchCheck className="mr-2 h-4 w-4" />
+                <Settings2 className="mr-2 h-4 w-4" />
                 Manual Generate & Check
               </>
             )}
@@ -575,8 +577,8 @@ export default function Home() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5" /> Automatic Seed Phrase Inspector</CardTitle>
           <CardDescription>
-            Continuously generates random seed phrases and checks for balances using the API keys above.
-            Batch size for generation is set in the "Manual Seed Phrase Generation" section above.
+            Continuously generates random seed phrases (varying lengths) and checks for balances using the API keys above.
+            Batch size for generation is set in the "Manual Seed Phrase Generation" section.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -600,7 +602,7 @@ export default function Home() {
               <Button
                 onClick={startAutoGenerating}
                 disabled={isProcessingManual || (isAutoGenerating && !isAutoGenerationPaused)}
-                className="bg-green-500 hover:bg-green-600 text-white w-28"
+                className="bg-green-600 hover:bg-green-700 text-white w-28"
                 aria-label={isAutoGenerationPaused ? "Resume Generating" : "Start Generating"}
               >
                 <Play className="mr-2 h-4 w-4" />
@@ -621,8 +623,8 @@ export default function Home() {
             <Button
               onClick={stopAutoGenerating}
               disabled={isProcessingManual || !isAutoGenerating}
-              variant="destructive"
-              className="bg-red-500 hover:bg-red-600 text-white w-28"
+              variant="destructive" // Keeps original destructive variant styling
+              className="w-28" // No need to override bg/hover here if destructive provides it
               aria-label="Stop Generating"
             >
               <Square className="mr-2 h-4 w-4" />
@@ -650,7 +652,7 @@ export default function Home() {
             <CardDescription>
               Etherscan API (masked): {etherscanApiKeyInput.trim() ? maskValue(etherscanApiKeyInput, 4, 4) : 'N/A'}.
               BlockCypher API (masked): {blockcypherApiKeyInput.trim() ? maskValue(blockcypherApiKeyInput, 4, 4) : 'N/A'}.
-              Displaying last {MAX_DISPLAYED_RESULTS} results.
+              Displaying last {MAX_DISPLAYED_RESULTS} results (newest first).
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -658,13 +660,13 @@ export default function Home() {
               <TableCaption>Derived addresses and their ETH balances. Only wallets with balances &gt; 0 are shown.</TableCaption>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[18%]">Seed Phrase (Masked)</TableHead>
-                  <TableHead className="w-[27%]">Derived Address (Masked)</TableHead>
+                  <TableHead className="w-[20%]">Seed Phrase (Masked)</TableHead>
+                  <TableHead className="w-[10%] text-center">Length</TableHead>
+                  <TableHead className="w-[25%]">Derived Address (Masked)</TableHead>
                   <TableHead className="w-[15%] text-center">Wallet Type</TableHead>
                   <TableHead className="w-[10%] text-center">Crypto</TableHead>
-                  <TableHead className="w-[15%] text-right">Balance (ETH)</TableHead>
+                  <TableHead className="w-[10%] text-right">Balance (ETH)</TableHead>
                   <TableHead className="w-[10%] text-center">Data Source</TableHead>
-                  <TableHead className="w-[5%] text-center">Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -686,6 +688,9 @@ export default function Home() {
                       </div>
                       {result.derivationError && <p className="text-destructive text-[10px] italic mt-1">Derivation: {result.derivationError}</p>}
                       {result.error && !result.derivationError && <p className="text-destructive text-[10px] italic mt-1">{result.error}</p>}
+                    </TableCell>
+                    <TableCell className="text-center align-top text-xs">
+                        {result.wordCount ? `${result.wordCount} words` : (result.seedPhrase?.split(' ').length || 'N/A')}
                     </TableCell>
                     <TableCell className="font-mono text-xs align-top">
                       {result.isLoading && !result.derivedAddress && <span>Deriving...</span>}
@@ -744,24 +749,15 @@ export default function Home() {
                       )}
                     </TableCell>
                     <TableCell className="text-center align-top text-xs">
-                      {result.isLoading && !result.balanceData && ''}
+                      {result.isLoading && !result.balanceData && <Loader2 className="h-4 w-4 animate-spin text-accent inline-block" />}
                       {result.balanceData ? (
                         getDataSourceTag(result.balanceData.dataSource)
                       ) : result.derivationError ? (
                         '-'
-                      ) : result.error ? (
-                        getDataSourceTag('Simulated Fallback') /* This case might not happen much for auto-gen */
+                      ) : result.error && !result.isLoading ? (
+                         getDataSourceTag('Simulated Fallback') 
                       ) : (
                         !result.isLoading && '-'
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center align-top">
-                      {result.isLoading ? (
-                        <Loader2 className="h-4 w-4 animate-spin text-accent inline-block" />
-                      ) : result.error ? (
-                        <span className="text-destructive text-xs font-semibold">Failed</span>
-                      ) : (
-                        <span className="text-green-600 text-xs font-semibold">Done</span>
                       )}
                     </TableCell>
                   </TableRow>
@@ -774,4 +770,3 @@ export default function Home() {
     </div>
   );
 }
-

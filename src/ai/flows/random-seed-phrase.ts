@@ -1,6 +1,6 @@
 'use server';
 /**
- * @fileOverview A flow for generating random seed phrases, deriving addresses, and checking their balances using Etherscan and BlockCypher APIs.
+ * @fileOverview A flow for generating random seed phrases of various lengths, deriving addresses, and checking their balances using Etherscan and BlockCypher APIs.
  *
  * - generateAndCheckSeedPhrases - A function that handles the seed phrase generation and balance checking process.
  * - GenerateAndCheckSeedPhrasesInput - The input type for the generateAndCheckSeedPhrases function.
@@ -25,15 +25,29 @@ const SingleSeedPhraseResultSchema = z.object({
   cryptoName: z.string().describe('The name of the cryptocurrency (e.g., ETH).'),
   balance: z.number().describe('The ETH balance for the derived address.'),
   dataSource: z.string().describe('The source of the balance data (Etherscan, BlockCypher, or N/A).'),
+  wordCount: z.number().describe('The number of words in the seed phrase.'),
 });
 
 const GenerateAndCheckSeedPhrasesOutputSchema = z.array(SingleSeedPhraseResultSchema);
 export type GenerateAndCheckSeedPhrasesOutput = z.infer<typeof GenerateAndCheckSeedPhrasesOutputSchema>;
 
-// Function to generate a random seed phrase
-function generateRandomSeedPhrase(): string {
-  // Generate 16 bytes of entropy for a 12-word mnemonic
-  const randomEntropy = ethers.randomBytes(16);
+const ALLOWED_WORD_COUNTS: Array<12 | 15 | 18 | 21 | 24> = [12, 15, 18, 21, 24];
+
+// Function to generate a random seed phrase of a given length
+function generateRandomSeedPhrase(wordCount: 12 | 15 | 18 | 21 | 24): string {
+  let entropyBytes: number;
+  switch (wordCount) {
+    case 12: entropyBytes = 16; break; // 128 bits
+    case 15: entropyBytes = 20; break; // 160 bits
+    case 18: entropyBytes = 24; break; // 192 bits
+    case 21: entropyBytes = 28; break; // 224 bits
+    case 24: entropyBytes = 32; break; // 256 bits
+    default:
+      // Should not happen if called with allowed word counts
+      console.error(`Invalid word count for seed phrase generation: ${wordCount}. Defaulting to 12 words.`);
+      entropyBytes = 16;
+  }
+  const randomEntropy = ethers.randomBytes(entropyBytes);
   const mnemonic = ethers.Mnemonic.fromEntropy(randomEntropy);
   return mnemonic.phrase;
 }
@@ -41,6 +55,7 @@ function generateRandomSeedPhrase(): string {
 // Function to derive address and check balance for a single seed phrase
 async function deriveAddressAndCheckBalance(
   seedPhrase: string,
+  wordCount: number,
   etherscanApiKey?: string,
   blockcypherApiKey?: string
 ): Promise<{
@@ -50,6 +65,7 @@ async function deriveAddressAndCheckBalance(
   cryptoName: string;
   balance: number;
   dataSource: string;
+  wordCount: number;
 } | null> { // Return null if error or no balance
   try {
     const wallet = ethers.Wallet.fromPhrase(seedPhrase);
@@ -69,12 +85,11 @@ async function deriveAddressAndCheckBalance(
         balance = parseFloat(balanceEth);
         dataSource = 'Etherscan API';
         if (balance > 0) {
-          return { seedPhrase, derivedAddress, walletType, cryptoName, balance, dataSource };
+          return { seedPhrase, derivedAddress, walletType, cryptoName, balance, dataSource, wordCount };
         }
       } catch (etherscanError: any) {
         console.warn(`Etherscan API error for ${derivedAddress}: ${etherscanError.message}. Trying BlockCypher or skipping.`);
-        // Fall through to BlockCypher
-        dataSource = 'N/A'; // Reset datasource if Etherscan failed
+        dataSource = 'N/A'; 
         balance = 0;
       }
     }
@@ -86,14 +101,13 @@ async function deriveAddressAndCheckBalance(
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: "Unknown error parsing BlockCypher error" }));
           console.warn(`BlockCypher API error for ${derivedAddress}: ${response.status} ${response.statusText} - ${errorData.error || JSON.stringify(errorData)}`);
-          // If BlockCypher fails, we don't want to return this as a success
         } else {
             const data = await response.json();
-            const balanceEth = ethers.formatEther(BigInt(data.balance)); // BlockCypher returns balance in Wei as a number
+            const balanceEth = ethers.formatEther(BigInt(data.balance)); 
             balance = parseFloat(balanceEth);
             dataSource = 'BlockCypher API';
             if (balance > 0) {
-                 return { seedPhrase, derivedAddress, walletType, cryptoName, balance, dataSource };
+                 return { seedPhrase, derivedAddress, walletType, cryptoName, balance, dataSource, wordCount };
             }
         }
       } catch (blockcypherError: any) {
@@ -101,16 +115,13 @@ async function deriveAddressAndCheckBalance(
       }
     }
     
-    // If balance is still 0 after trying available APIs, or if no APIs were tried/successful.
     if (balance > 0) {
-         return { seedPhrase, derivedAddress, walletType, cryptoName, balance, dataSource };
+         return { seedPhrase, derivedAddress, walletType, cryptoName, balance, dataSource, wordCount };
     }
-    // If balance is 0, don't return it.
     return null;
 
   } catch (error: any) {
-    // This catch is mainly for derivation errors. API errors are handled above.
-    console.error(`Error deriving address for seed phrase: ${error.message}`);
+    console.error(`Error deriving address for seed phrase "${seedPhrase.substring(0,15)}...": ${error.message}`);
     return null;
   }
 }
@@ -130,19 +141,22 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
     const results: GenerateAndCheckSeedPhrasesOutput = [];
 
     if (!etherscanApiKey && !blockcypherApiKey) {
-        console.warn("No API keys provided for generateAndCheckSeedPhrasesFlow. Balances will not be fetched.");
-        // Depending on requirements, you might want to throw an error or return empty
+        console.warn("No API keys provided for generateAndCheckSeedPhrasesFlow. Balances will not be fetched realistically.");
     }
 
     for (let i = 0; i < numSeedPhrases; i++) {
-      const seedPhrase = generateRandomSeedPhrase();
-      // Only proceed if at least one API key is available
+      const randomIndex = Math.floor(Math.random() * ALLOWED_WORD_COUNTS.length);
+      const currentWordCount = ALLOWED_WORD_COUNTS[randomIndex];
+      const seedPhrase = generateRandomSeedPhrase(currentWordCount);
+      
+      // Only proceed if at least one API key is available to attempt real balance check
       if (etherscanApiKey || blockcypherApiKey) {
-        const result = await deriveAddressAndCheckBalance(seedPhrase, etherscanApiKey, blockcypherApiKey);
-        if (result && result.balance > 0) { // Only include wallets with non-empty balances
+        const result = await deriveAddressAndCheckBalance(seedPhrase, currentWordCount, etherscanApiKey, blockcypherApiKey);
+        if (result && result.balance > 0) { 
           results.push(result);
         }
       }
+      // If no API keys, we don't add any results as per the requirement to only show non-empty real balances.
     }
     return results;
   }

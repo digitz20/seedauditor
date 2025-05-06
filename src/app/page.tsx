@@ -16,20 +16,21 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Terminal, Loader2, Wallet, Network, Coins, Copy, Eraser, Trash2, KeyRound, Info, ExternalLink, SearchCheck, ShieldAlert } from 'lucide-react';
+import { Terminal, Loader2, Wallet, Network, Coins, Copy, Eraser, Trash2, KeyRound, Info, ExternalLink, SearchCheck, ShieldAlert, DatabaseZap } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { processSeedPhrasesAndFetchBalances, type ProcessedWalletInfo } from './actions';
+import { processSeedPhrasesAndFetchBalances, type ProcessedWalletInfo, type AddressBalanceResult } from './actions';
 
 
 interface ResultRow extends ProcessedWalletInfo {
-  isLoading: boolean; // For individual row loading, though main processing is batched
+  isLoading: boolean; 
 }
 
 
 export default function Home() {
   const [seedPhrasesInput, setSeedPhrasesInput] = useState<string>('');
-  const [apiKeyInput, setApiKeyInput] = useState<string>('ZKPID4755Q9BJZVXXZ96M3N6RSXYE7NTRV'); // Default Etherscan API Key
+  const [etherscanApiKeyInput, setEtherscanApiKeyInput] = useState<string>('ZKPID4755Q9BJZVXXZ96M3N6RSXYE7NTRV'); // Default Etherscan API Key
+  const [blockcypherApiKeyInput, setBlockcypherApiKeyInput] = useState<string>('41ccb7c601ef4bad99b3698cfcea9a8c'); // Default BlockCypher API Key
   const [results, setResults] = useState<ResultRow[]>([]);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   
@@ -49,14 +50,31 @@ export default function Home() {
       });
       return;
     }
-     if (!apiKeyInput.trim()) {
+    
+    const hasEtherscanKey = etherscanApiKeyInput.trim();
+    const hasBlockcypherKey = blockcypherApiKeyInput.trim();
+
+    if (!hasEtherscanKey && !hasBlockcypherKey) {
       toast({
-        title: 'Etherscan API Key Required',
-        description: 'Please enter an Etherscan API key to fetch real ETH balances. If the key is invalid or missing, balances will be simulated as a fallback.',
-        variant: 'destructive', // Changed to destructive as it's a primary requirement for "real" data
+        title: 'API Key Recommended',
+        description: 'Please enter an Etherscan or BlockCypher API key for real ETH balances. Balances will be simulated.',
+        variant: 'default', 
       });
-      // Allow to proceed, will use simulation if key is bad or missing
+    } else if (!hasEtherscanKey) {
+       toast({
+        title: 'Etherscan API Key Missing',
+        description: 'Etherscan API key is missing. Will attempt to use BlockCypher or simulate.',
+        variant: 'default',
+      });
+    } else if (!hasBlockcypherKey) {
+       toast({
+        title: 'BlockCypher API Key Missing',
+        description: 'BlockCypher API key is missing. Will attempt to use Etherscan or simulate.',
+        variant: 'default',
+      });
     }
+
+
     if (phrases.length > 1000) {
       toast({
         title: 'Too Many Seed Phrases',
@@ -67,7 +85,6 @@ export default function Home() {
     }
 
     setIsProcessing(true);
-    // Initialize results with loading state
     setResults(
       phrases.map((phrase) => ({
         seedPhrase: phrase,
@@ -82,26 +99,37 @@ export default function Home() {
     );
 
     try {
-      // Call the unified server action
-      const processedData = await processSeedPhrasesAndFetchBalances(phrases, apiKeyInput || undefined);
+      const processedData = await processSeedPhrasesAndFetchBalances(
+        phrases, 
+        etherscanApiKeyInput || undefined, 
+        blockcypherApiKeyInput || undefined
+      );
       
-      // Update results based on the processed data
       setResults(processedData.map(data => ({ ...data, isLoading: false })));
+
+      let toastMessage = `Finished processing ${phrases.length} seed phrases. `;
+      if (hasEtherscanKey && hasBlockcypherKey) {
+        toastMessage += 'Attempted to fetch real ETH balances using Etherscan and BlockCypher.';
+      } else if (hasEtherscanKey) {
+        toastMessage += 'Attempted to fetch real ETH balances using Etherscan.';
+      } else if (hasBlockcypherKey) {
+        toastMessage += 'Attempted to fetch real ETH balances using BlockCypher.';
+      } else {
+        toastMessage += 'API keys not provided; ETH balances are simulated.';
+      }
 
       toast({
         title: 'Balance Fetch Complete',
-        description: `Finished processing ${phrases.length} seed phrases. ${apiKeyInput ? 'Attempted to fetch real ETH balances using Etherscan.' : 'Etherscan API key not provided; ETH balances are simulated.'}`,
+        description: toastMessage,
       });
 
     } catch (error: any) {
-      // This catch is for errors from the server action itself, not individual phrase errors
       console.error("General error during balance fetching process:", error);
       toast({
         title: 'Processing Error',
         description: `An unexpected error occurred: ${error.message}. Some results might be incomplete.`,
         variant: 'destructive',
       });
-       // Mark all as not loading, errors are handled per-row from `processedData`
       setResults(prevResults => prevResults.map(r => ({...r, isLoading: false, error: r.error || "Overall process failed" })));
     }
 
@@ -110,8 +138,6 @@ export default function Home() {
 
   const handleClearInput = () => {
     setSeedPhrasesInput('');
-    // Keep API key or clear it? User preference. For now, clearing both.
-    // setApiKeyInput(''); // Let's keep the API key if they want to reuse it
     toast({
       title: 'Seed Phrase Input Cleared',
       description: 'The seed phrase input area has been cleared.',
@@ -134,7 +160,7 @@ export default function Home() {
   };
 
   const maskValue = (value: string, start = 5, end = 5) => {
-    if (!value || value.length < start + end + 3) return value; // Return original if too short to mask meaningfully
+    if (!value || value.length < start + end + 3) return value;
     return `${value.substring(0, start)}...${value.substring(value.length - end)}`;
   };
   
@@ -155,6 +181,27 @@ export default function Home() {
       });
     }
   };
+  
+  const getDataSourceTag = (dataSource: AddressBalanceResult['dataSource']) => {
+    switch (dataSource) {
+      case 'Etherscan API':
+        return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-green-100 text-green-800 dark:bg-green-800/30 dark:text-green-300">Etherscan</span>;
+      case 'BlockCypher API':
+        return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-800 dark:bg-blue-800/30 dark:text-blue-300">BlockCypher</span>;
+      case 'Simulated Fallback':
+      default:
+        return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-800/30 dark:text-amber-300">Simulated</span>;
+    }
+  };
+
+  const getFetchButtonText = () => {
+    const hasEtherscan = etherscanApiKeyInput.trim();
+    const hasBlockcypher = blockcypherApiKeyInput.trim();
+    if (hasEtherscan && hasBlockcypher) return 'Use API Keys';
+    if (hasEtherscan) return 'Use Etherscan API';
+    if (hasBlockcypher) return 'Use BlockCypher API';
+    return 'Simulate All';
+  }
 
   return (
     <div className="container mx-auto p-4 md:p-8">
@@ -163,7 +210,7 @@ export default function Home() {
           <Wallet className="h-8 w-8" /> ETH Balance Auditor
         </h1>
         <p className="text-muted-foreground">
-          Enter seed phrases and an Etherscan API key to derive addresses and fetch their real ETH balances.
+          Enter seed phrases and API keys (Etherscan/BlockCypher) to derive addresses and fetch their real ETH balances.
         </p>
       </header>
 
@@ -174,24 +221,24 @@ export default function Home() {
           <strong>NEVER enter REAL seed phrases into ANY online tool you do not fully trust.</strong>
           This application is for demonstration and educational purposes.
           <ul>
-            <li>It uses <code>ethers.js</code> for LOCAL address derivation from seed phrases. Your seed phrases are NOT sent to any server for derivation.</li>
-            <li>It WILL attempt to use the provided Etherscan API key to fetch REAL ETH balances for the derived addresses.</li>
-            <li>If no Etherscan API key is provided, or if an Etherscan API call fails, it will fall back to RANDOMLY SIMULATED ETH balances for affected addresses and indicate this.</li>
-            <li><strong>Exposing real seed phrases can lead to PERMANENT LOSS OF FUNDS. Only use the API key feature if you understand the risks and are using a key with appropriate permissions. The pre-filled Etherscan API key is for demonstration and may be rate-limited or revoked.</strong></li>
+            <li>It uses <code>ethers.js</code> for LOCAL address derivation. Your seed phrases are NOT sent to any server for derivation.</li>
+            <li>It WILL attempt to use provided API keys (Etherscan, BlockCypher) to fetch REAL ETH balances.</li>
+            <li>If API keys are missing, invalid, or calls fail, it falls back to RANDOMLY SIMULATED ETH balances.</li>
+            <li><strong>Exposing real seed phrases can lead to PERMANENT LOSS OF FUNDS. The pre-filled API keys are for demonstration and may be rate-limited or revoked.</strong></li>
           </ul>
         </AlertDescription>
       </Alert>
 
       <Card className="shadow-lg mb-6">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5" /> Input Seed Phrases & API Key</CardTitle>
+          <CardTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5" /> Input Seed Phrases & API Keys</CardTitle>
           <CardDescription>
-            Provide seed phrases (one per line) and your Etherscan API key. 
-            Real ETH balances will be fetched if the key is valid; otherwise, simulated balances are shown as a fallback.
+            Provide seed phrases (one per line) and your Etherscan/BlockCypher API keys. 
+            Real ETH balances will be fetched if keys are valid; otherwise, simulated balances are shown.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="space-y-3">
+        <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="md:col-span-1 space-y-3">
             <Textarea
               placeholder="Paste your seed phrases here, one per line...
 SIMULATION ONLY - DO NOT USE REAL SEED PHRASES UNLESS YOU ARE CERTAIN OF THE ENVIRONMENT'S SECURITY"
@@ -203,22 +250,39 @@ SIMULATION ONLY - DO NOT USE REAL SEED PHRASES UNLESS YOU ARE CERTAIN OF THE ENV
               aria-label="Seed Phrases Input"
             />
           </div>
-          <div className="space-y-3">
+          <div className="md:col-span-1 space-y-3">
             <Input
               type="password" 
               placeholder="Enter Etherscan API Key"
-              value={apiKeyInput}
-              onChange={(e) => setApiKeyInput(e.target.value)}
+              value={etherscanApiKeyInput}
+              onChange={(e) => setEtherscanApiKeyInput(e.target.value)}
               className="text-sm border-input focus:ring-accent focus:border-accent font-mono"
               disabled={isProcessing}
               aria-label="Etherscan API Key Input"
             />
              <Alert variant="default" className="text-xs mt-2 bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/30 dark:border-blue-700/50 dark:text-blue-300 [&>svg]:text-blue-700 dark:[&>svg]:text-blue-300">
-                <Info className="h-4 w-4"/>
-                <AlertTitle className="font-semibold">API Key Usage</AlertTitle>
+                <DatabaseZap className="h-4 w-4"/>
+                <AlertTitle className="font-semibold">Etherscan API</AlertTitle>
                 <AlertDescription>
-                    The Etherscan API key is used to fetch <strong>actual ETH balances</strong>. If this key is invalid, missing, or rate-limited, or if an individual address query fails, a <em>simulated</em> ETH balance will be shown for that address as a fallback.
-                    The pre-filled key is for demonstration.
+                    Used to fetch actual ETH balances. If invalid/missing, will try BlockCypher or simulate. Pre-filled key is for demo.
+                </AlertDescription>
+            </Alert>
+          </div>
+          <div className="md:col-span-1 space-y-3">
+            <Input
+              type="password" 
+              placeholder="Enter BlockCypher API Key"
+              value={blockcypherApiKeyInput}
+              onChange={(e) => setBlockcypherApiKeyInput(e.target.value)}
+              className="text-sm border-input focus:ring-accent focus:border-accent font-mono"
+              disabled={isProcessing}
+              aria-label="BlockCypher API Key Input"
+            />
+             <Alert variant="default" className="text-xs mt-2 bg-purple-50 border-purple-200 text-purple-700 dark:bg-purple-900/30 dark:border-purple-700/50 dark:text-purple-300 [&>svg]:text-purple-700 dark:[&>svg]:text-purple-300">
+                <DatabaseZap className="h-4 w-4"/>
+                <AlertTitle className="font-semibold">BlockCypher API</AlertTitle>
+                <AlertDescription>
+                    Alternative for fetching ETH balances. If invalid/missing, will try Etherscan or simulate. Pre-filled key is for demo.
                 </AlertDescription>
             </Alert>
           </div>
@@ -238,7 +302,7 @@ SIMULATION ONLY - DO NOT USE REAL SEED PHRASES UNLESS YOU ARE CERTAIN OF THE ENV
               ) : (
                 <>
                   <SearchCheck className="mr-2 h-4 w-4" />
-                  Fetch ETH Balances {apiKeyInput.trim() ? '(Use API Key)' : '(Simulate All)'}
+                  Fetch ETH Balances ({getFetchButtonText()})
                 </>
               )}
             </Button>
@@ -270,13 +334,14 @@ SIMULATION ONLY - DO NOT USE REAL SEED PHRASES UNLESS YOU ARE CERTAIN OF THE ENV
           <CardHeader>
             <CardTitle>ETH Balance Results</CardTitle>
             <CardDescription>
-              {apiKeyInput.trim() ? `Attempted to use Etherscan API Key (masked): ${maskValue(apiKeyInput,4,4)}.` : 'No Etherscan API key provided; all ETH balances are simulated.'}
-              {' Balances marked "Simulated Fallback" could not be fetched via API.'}
+              Etherscan API (masked): {etherscanApiKeyInput.trim() ? maskValue(etherscanApiKeyInput,4,4) : 'N/A'}. 
+              BlockCypher API (masked): {blockcypherApiKeyInput.trim() ? maskValue(blockcypherApiKeyInput,4,4) : 'N/A'}.
+              {' Balances show data source (Etherscan, BlockCypher, or Simulated).'}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
-              <TableCaption>Derived addresses and their ETH balances (real or simulated).</TableCaption>
+              <TableCaption>Derived addresses and their ETH balances.</TableCaption>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[18%]">Seed Phrase (Masked)</TableHead>
@@ -355,10 +420,10 @@ SIMULATION ONLY - DO NOT USE REAL SEED PHRASES UNLESS YOU ARE CERTAIN OF THE ENV
                           <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full ${result.balanceData.isRealData ? 'bg-green-500/20 text-green-700 dark:text-green-400' : 'bg-accent/20 text-accent'} text-[10px] font-bold shrink-0`}>
                             {getCurrencyIcon(result.balanceData.currency)}
                           </span>
-                          {result.balanceData.balance.toFixed(6)}{' '} {/* Increased precision for ETH */}
+                          {result.balanceData.balance.toFixed(6)}{' '}
                           <span className="text-muted-foreground text-[10px] shrink-0">{result.balanceData.currency}</span>
                         </span>
-                      ) : result.error && !result.derivationError ? ( // Show error only if not derivation error
+                      ) : result.error && !result.derivationError ? ( 
                         <span className="text-destructive text-xs italic">Fetch Error</span>
                       ) : (
                         !result.isLoading && '-'
@@ -367,13 +432,11 @@ SIMULATION ONLY - DO NOT USE REAL SEED PHRASES UNLESS YOU ARE CERTAIN OF THE ENV
                      <TableCell className="text-center align-top text-xs">
                       {result.isLoading && !result.balanceData && ''}
                       {result.balanceData ? (
-                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${result.balanceData.isRealData ? 'bg-green-100 text-green-800 dark:bg-green-800/30 dark:text-green-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-800/30 dark:text-amber-300'}`}>
-                          {result.balanceData.isRealData ? 'Etherscan API' : 'Simulated Fallback'}
-                        </span>
-                      ) : result.derivationError ? ( // If derivation failed, no source to show
+                        getDataSourceTag(result.balanceData.dataSource)
+                      ) : result.derivationError ? ( 
                          '-'
-                      ): result.error ? ( // If general error, but not derivation, show simulated
-                        <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-800/30 dark:text-amber-300">Simulated Fallback</span>
+                      ): result.error ? ( 
+                        getDataSourceTag('Simulated Fallback') // Show simulated if error but not derivation error
                       ): (
                         !result.isLoading && '-'
                       )}

@@ -10,7 +10,8 @@ export interface AddressBalanceResult {
   address: string;
   balance: number;
   currency: string; // e.g., ETH
-  isRealData: boolean; // True if fetched from Etherscan, false if simulated due to error or no API key
+  isRealData: boolean; // True if fetched from a real API, false if simulated
+  dataSource: 'Etherscan API' | 'BlockCypher API' | 'Simulated Fallback'; // To indicate source
 }
 
 /**
@@ -29,21 +30,27 @@ export interface ProcessedWalletInfo {
 
 /**
  * Fetches the ETH balance for a given Ethereum address.
- * If an Etherscan API key is provided, it attempts to fetch the real balance.
- * Otherwise, or if the API call fails, it falls back to simulating the balance.
+ * Tries Etherscan first, then BlockCypher if respective API keys are provided.
+ * Falls back to simulation if API calls fail or no keys are provided.
  *
  * @param address The Ethereum address to fetch the balance for.
  * @param etherscanApiKey (Optional) The Etherscan API key.
- * @returns A Promise that resolves with the address balance (real or simulated) and a flag indicating data source.
- * @throws If an error occurs during fetching or simulation that isn't handled by fallback.
+ * @param blockcypherApiKey (Optional) The BlockCypher API key.
+ * @returns A Promise that resolves with the address balance and data source.
+ * @throws If an error occurs during fetching that isn't handled by fallback.
  */
-export async function fetchAddressBalance(address: string, etherscanApiKey?: string): Promise<AddressBalanceResult> {
-  console.log(`Fetching balance for address: ${address}${etherscanApiKey ? ` using Etherscan API key.` : ' (simulation mode).'}`);
+export async function fetchAddressBalance(
+  address: string,
+  etherscanApiKey?: string,
+  blockcypherApiKey?: string
+): Promise<AddressBalanceResult> {
+  console.log(`Fetching balance for address: ${address}. Etherscan key: ${!!etherscanApiKey}, BlockCypher key: ${!!blockcypherApiKey}`);
 
   if (!ethers.isAddress(address)) {
     throw new Error(`Invalid Ethereum address provided: ${address}.`);
   }
 
+  // Try Etherscan API
   if (etherscanApiKey) {
     try {
       const provider = new ethers.EtherscanProvider("mainnet", etherscanApiKey);
@@ -55,49 +62,77 @@ export async function fetchAddressBalance(address: string, etherscanApiKey?: str
         balance: parseFloat(balanceEth),
         currency: 'ETH',
         isRealData: true,
+        dataSource: 'Etherscan API',
       };
     } catch (error: any) {
-      console.error(`Etherscan API error for ${address}: ${error.message}. Falling back to simulation.`);
-      // Fall through to simulation if Etherscan API fails
+      console.error(`Etherscan API error for ${address}: ${error.message}. Trying BlockCypher or falling back to simulation.`);
+      // Fall through to BlockCypher or simulation
+    }
+  }
+
+  // Try BlockCypher API
+  if (blockcypherApiKey) {
+    try {
+      const response = await fetch(`https://api.blockcypher.com/v1/eth/main/addrs/${address}/balance?token=${blockcypherApiKey}`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(`BlockCypher API error: ${response.status} ${response.statusText} - ${errorData.error || JSON.stringify(errorData)}`);
+      }
+      const data = await response.json();
+      // BlockCypher returns balance in Wei as a number.
+      const balanceEth = ethers.formatEther(BigInt(data.balance));
+      console.log(`Real balance for ${address} from BlockCypher: ${balanceEth} ETH`);
+      return {
+        address,
+        balance: parseFloat(balanceEth),
+        currency: 'ETH',
+        isRealData: true,
+        dataSource: 'BlockCypher API',
+      };
+    } catch (error: any) {
+      console.error(`BlockCypher API error for ${address}: ${error.message}. Falling back to simulation.`);
+      // Fall through to simulation
     }
   }
 
   // Simulation fallback
-  console.log(`Simulating balance for ${address} as Etherscan API key not provided or API call failed.`);
-  // Simulate network delay
+  console.log(`Simulating balance for ${address} as API calls failed or keys not provided.`);
   const delay = Math.random() * 700 + 300; // 300ms to 1000ms delay
   await new Promise(resolve => setTimeout(resolve, delay));
 
-  // Simulate potential network errors occasionally for simulation
-  if (Math.random() < 0.04) { // 4% chance of error for simulation
+  if (Math.random() < 0.02) { // 2% chance of simulated error if we reach here
     console.warn(`Simulated network error during balance fetch for address: ${address}.`);
     throw new Error(`Simulated network error: Failed to fetch balance for ${address}. (Address Balance Simulation)`);
   }
 
-  // Generate random balance data (e.g., ETH)
-  const balance = parseFloat((Math.random() * 15).toFixed(4)); // Random ETH balance between 0 and 15
-  const currency = 'ETH'; // Simulating ETH balance
+  const balance = parseFloat((Math.random() * 15).toFixed(4));
+  const currency = 'ETH';
 
   console.log(`Simulated balance for ${address}: ${balance} ${currency}`);
-
   return {
     address,
     balance,
     currency,
     isRealData: false,
+    dataSource: 'Simulated Fallback',
   };
 }
 
 
 /**
  * Processes a list of seed phrases: derives addresses and fetches their ETH balances.
- * Uses Etherscan API if key is provided, otherwise simulates balances.
+ * Uses Etherscan or BlockCypher API if keys are provided, otherwise simulates balances.
  *
  * @param seedPhrases An array of seed phrases.
  * @param etherscanApiKey (Optional) The Etherscan API key.
+ * @param blockcypherApiKey (Optional) The BlockCypher API key.
  * @returns A Promise that resolves with an array of ProcessedWalletInfo.
  */
-export async function processSeedPhrasesAndFetchBalances(seedPhrases: string[], etherscanApiKey?: string): Promise<ProcessedWalletInfo[]> {
+export async function processSeedPhrasesAndFetchBalances(
+  seedPhrases: string[],
+  etherscanApiKey?: string,
+  blockcypherApiKey?: string
+): Promise<ProcessedWalletInfo[]> {
   const results: ProcessedWalletInfo[] = [];
 
   for (const phrase of seedPhrases) {
@@ -109,35 +144,32 @@ export async function processSeedPhrasesAndFetchBalances(seedPhrases: string[], 
     let derivationError: string | null = null;
 
     try {
-      // Derive address
       const wallet = ethers.Wallet.fromPhrase(phrase);
       derivedAddress = wallet.address;
       console.log(`Derived address: ${derivedAddress} for phrase starting with ${phrase.substring(0, 5)}...`);
 
-      // Simulate a small delay before fetching balance
       await new Promise(resolve => setTimeout(resolve, 50 + Math.random() * 100));
       
-      // Fetch balance (real or simulated)
-      balanceData = await fetchAddressBalance(derivedAddress, etherscanApiKey);
+      balanceData = await fetchAddressBalance(derivedAddress, etherscanApiKey, blockcypherApiKey);
 
     } catch (e: any) {
       console.error(`Error processing seed phrase "${phrase.substring(0,5)}...": ${e.message}`);
-      if (!derivedAddress) { // Error likely during derivation
+      if (!derivedAddress) {
         derivationError = e.message?.split('(')[0]?.trim() || 'Could not derive address';
         error = `Derivation failed: ${derivationError}`;
-        walletType = null; // No wallet type if derivation fails
-        cryptoName = null; // No crypto name if derivation fails
-      } else { // Error likely during balance fetch, but derivation was successful
+        walletType = null;
+        cryptoName = null;
+      } else {
         error = `Balance fetch failed: ${e.message}`;
-        // Keep derivedAddress, walletType, cryptoName as they were successfully determined
       }
-       // If balanceData is still null and an error occurred, create a simulated error entry for balance
       if (!balanceData && derivedAddress) {
+        // If an error occurred and balanceData is still null, ensure a fallback entry is created.
         balanceData = {
           address: derivedAddress,
           balance: 0,
           currency: 'ETH',
-          isRealData: false, // Mark as simulated due to error
+          isRealData: false,
+          dataSource: 'Simulated Fallback', // Mark as simulated due to error
         };
       }
     }

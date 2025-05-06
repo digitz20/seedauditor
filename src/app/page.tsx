@@ -43,7 +43,7 @@ export default function Home() {
   const [results, setResults] = useState<ResultRow[]>([]);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   
-  const [apiKeyInput, setApiKeyInput] = useState<string>('');
+  const [apiKeyInput, setApiKeyInput] = useState<string>('ZKPID4755Q9BJZVXXZ96M3N6RSXYE7NTRV');
   const [realDataResult, setRealDataResult] = useState<RealWalletDataResult | null>(null);
   const [isFetchingRealData, setIsFetchingRealData] = useState<boolean>(false);
 
@@ -67,10 +67,10 @@ export default function Home() {
       });
       return;
     }
-    if (phrases.length > 50) {
+    if (phrases.length > 1000) {
       toast({
         title: 'Too Many Seed Phrases',
-        description: 'Please enter no more than 50 seed phrases at a time for this simulation.',
+        description: 'Please enter no more than 1000 seed phrases at a time for this simulation.',
         variant: 'destructive',
       });
       return;
@@ -322,7 +322,7 @@ export default function Home() {
             <li>The "Standard Audit" generates RANDOMLY SIMULATED balances for various illustrative tokens.</li>
             <li>The "Fetch Real Data (Simulated)" feature is also a SIMULATION. It mimics how an API key might be used for a broad portfolio but <strong>DOES NOT</strong> make actual external API calls with your key for this section; data is still randomly generated.</li>
             <li>The "Fetch Address Balances" feature WILL attempt to use the provided Etherscan API key to fetch REAL ETH balances for the derived addresses. If no key is provided or the call fails, it falls back to RANDOMLY GENERATED ETH balances.</li>
-            <li><strong>Exposing real seed phrases can lead to PERMANENT LOSS OF FUNDS. Only use the API key feature if you understand the risks and are using a key with appropriate permissions.</strong></li>
+            <li><strong>Exposing real seed phrases can lead to PERMANENT LOSS OF FUNDS. Only use the API key feature if you understand the risks and are using a key with appropriate permissions. The provided Etherscan API key is for demonstration and may be rate-limited or revoked.</strong></li>
           </ul>
         </AlertDescription>
       </Alert>
@@ -407,6 +407,7 @@ SIMULATION ONLY - DO NOT USE REAL SEED PHRASES"
                 <AlertDescription>
                     The Etherscan API key you provide will be used by the "Fetch Address Balances" button to attempt to get <strong>actual ETH balances</strong> for the derived addresses.
                     The "Fetch 'Real' Data (Simulated Portfolio)" button uses the first seed phrase and API key for a <em>conceptual simulation</em> of diverse token balances (still randomly generated) and does not reflect real multi-asset holdings.
+                    The pre-filled Etherscan API key is for demonstration purposes.
                 </AlertDescription>
             </Alert>
            </CardFooter>

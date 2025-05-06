@@ -35,6 +35,7 @@ export default function Home() {
   const [seedPhrasesInput, setSeedPhrasesInput] = useState<string>('');
   const [etherscanApiKeyInput, setEtherscanApiKeyInput] = useState<string>('ZKPID4755Q9BJZVXXZ96M3N6RSXYE7NTRV');
   const [blockcypherApiKeyInput, setBlockcypherApiKeyInput] = useState<string>('41ccb7c601ef4bad99b3698cfcea9a8c');
+  const [alchemyApiKeyInput, setAlchemyApiKeyInput] = useState<string>('p4UZuRIRutN5yn06iKDjOcAX2nB75ZRp');
   const [results, setResults] = useState<ResultRow[]>([]);
   const [isProcessingManual, setIsProcessingManual] = useState<boolean>(false);
   const [numSeedPhrasesToGenerate, setNumSeedPhrasesToGenerate] = useState<number>(1);
@@ -56,12 +57,15 @@ export default function Home() {
   const numSeedPhrasesToGenerateRef = useRef(numSeedPhrasesToGenerate);
   const etherscanApiKeyInputRef = useRef(etherscanApiKeyInput);
   const blockcypherApiKeyInputRef = useRef(blockcypherApiKeyInput);
+  const alchemyApiKeyInputRef = useRef(alchemyApiKeyInput);
+
 
   useEffect(() => { isAutoGeneratingRef.current = isAutoGenerating; }, [isAutoGenerating]);
   useEffect(() => { isAutoGenerationPausedRef.current = isAutoGenerationPaused; }, [isAutoGenerationPaused]);
   useEffect(() => { numSeedPhrasesToGenerateRef.current = numSeedPhrasesToGenerate; }, [numSeedPhrasesToGenerate]);
   useEffect(() => { etherscanApiKeyInputRef.current = etherscanApiKeyInput; }, [etherscanApiKeyInput]);
   useEffect(() => { blockcypherApiKeyInputRef.current = blockcypherApiKeyInput; }, [blockcypherApiKeyInput]);
+  useEffect(() => { alchemyApiKeyInputRef.current = alchemyApiKeyInput; }, [alchemyApiKeyInput]);
 
 
   const addLogMessage = (message: string) => {
@@ -88,27 +92,29 @@ export default function Home() {
 
     const hasEtherscanKey = etherscanApiKeyInput.trim();
     const hasBlockcypherKey = blockcypherApiKeyInput.trim();
-
-    if (!hasEtherscanKey && !hasBlockcypherKey) {
+    const hasAlchemyKey = alchemyApiKeyInput.trim();
+    
+    let keyWarnings = [];
+    if (!hasEtherscanKey && !hasBlockcypherKey && !hasAlchemyKey) {
       toast({
         title: 'API Key Recommended',
-        description: 'Please enter an Etherscan or BlockCypher API key for real ETH balances. Balances will be simulated.',
+        description: 'Please enter an Etherscan, BlockCypher, or Alchemy API key for real ETH balances. Balances will be simulated.',
         variant: 'default',
       });
-      return;
-    } else if (!hasEtherscanKey) {
-      toast({
-        title: 'Etherscan API Key Missing',
-        description: 'Etherscan API key is missing. Will attempt to use BlockCypher or simulate.',
-        variant: 'default',
-      });
-    } else if (!hasBlockcypherKey) {
-      toast({
-        title: 'BlockCypher API Key Missing',
-        description: 'BlockCypher API key is missing. Will attempt to use Etherscan or simulate.',
-        variant: 'default',
-      });
+       // For manual input, if no keys, we will still proceed with simulation.
+    } else {
+        if (!hasEtherscanKey) keyWarnings.push("Etherscan");
+        if (!hasBlockcypherKey) keyWarnings.push("BlockCypher");
+        if (!hasAlchemyKey) keyWarnings.push("Alchemy");
+        if (keyWarnings.length > 0 && keyWarnings.length < 3) {
+             toast({
+                title: `${keyWarnings.join(' & ')} API Key(s) Missing`,
+                description: `Will attempt to use available keys or simulate if all fail.`,
+                variant: 'default',
+            });
+        }
     }
+
 
     if (phrases.length > 1000) {
       toast({
@@ -138,21 +144,24 @@ export default function Home() {
       const processedData = await processSeedPhrasesAndFetchBalances(
         phrases,
         etherscanApiKeyInput || undefined,
-        blockcypherApiKeyInput || undefined
+        blockcypherApiKeyInput || undefined,
+        alchemyApiKeyInput || undefined
       );
 
       setResults(processedData.map(data => ({ ...data, isLoading: false, wordCount: data.seedPhrase.split(' ').length })));
 
       let toastMessage = `Finished processing ${phrases.length} seed phrases. `;
-      if (hasEtherscanKey && hasBlockcypherKey) {
-        toastMessage += 'Attempted to fetch real ETH balances using Etherscan and BlockCypher.';
-      } else if (hasEtherscanKey) {
-        toastMessage += 'Attempted to fetch real ETH balances using Etherscan.';
-      } else if (hasBlockcypherKey) {
-        toastMessage += 'Attempted to fetch real ETH balances using BlockCypher.';
+      const usedApis = [];
+      if (hasEtherscanKey) usedApis.push('Etherscan');
+      if (hasBlockcypherKey) usedApis.push('BlockCypher');
+      if (hasAlchemyKey) usedApis.push('Alchemy');
+
+      if (usedApis.length > 0) {
+        toastMessage += `Attempted to fetch real ETH balances using ${usedApis.join(', ')}.`;
       } else {
-        toastMessage += 'API keys not provided; ETH balances are simulated.';
+        toastMessage += 'No API keys provided; ETH balances are simulated.';
       }
+      
 
       toast({
         title: 'Balance Fetch Complete',
@@ -180,6 +189,7 @@ export default function Home() {
         numSeedPhrases: numSeedPhrasesToGenerate,
         etherscanApiKey: etherscanApiKeyInputRef.current || '',
         blockcypherApiKey: blockcypherApiKeyInputRef.current || '',
+        alchemyApiKey: alchemyApiKeyInputRef.current || '',
       };
 
       const generatedData: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
@@ -193,7 +203,7 @@ export default function Home() {
           address: item.derivedAddress,
           balance: item.balance,
           currency: item.cryptoName,
-          isRealData: item.dataSource === 'Etherscan API' || item.dataSource === 'BlockCypher API',
+          isRealData: ['Etherscan API', 'BlockCypher API', 'Alchemy API'].includes(item.dataSource),
           dataSource: item.dataSource,
         },
         error: null,
@@ -257,6 +267,7 @@ export default function Home() {
         numSeedPhrases: currentNumToGenerate,
         etherscanApiKey: etherscanApiKeyInputRef.current || '',
         blockcypherApiKey: blockcypherApiKeyInputRef.current || '',
+        alchemyApiKey: alchemyApiKeyInputRef.current || '',
       };
 
       const generatedData: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
@@ -270,7 +281,7 @@ export default function Home() {
           address: item.derivedAddress,
           balance: item.balance,
           currency: item.cryptoName,
-          isRealData: item.dataSource === 'Etherscan API' || item.dataSource === 'BlockCypher API',
+          isRealData: ['Etherscan API', 'BlockCypher API', 'Alchemy API'].includes(item.dataSource),
           dataSource: item.dataSource,
         },
         error: null,
@@ -385,6 +396,8 @@ export default function Home() {
         return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-green-100 text-green-800 dark:bg-green-800/30 dark:text-green-300">Etherscan</span>;
       case 'BlockCypher API':
         return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-800 dark:bg-blue-800/30 dark:text-blue-300">BlockCypher</span>;
+      case 'Alchemy API':
+        return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-100 text-purple-800 dark:bg-purple-800/30 dark:text-purple-300">Alchemy</span>;
       case 'Simulated Fallback':
          return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-800/30 dark:text-amber-300">Simulated</span>;
       case 'N/A':
@@ -395,12 +408,15 @@ export default function Home() {
   };
 
   const getFetchButtonText = () => {
-    const hasEtherscan = etherscanApiKeyInput.trim();
-    const hasBlockcypher = blockcypherApiKeyInput.trim();
-    if (hasEtherscan && hasBlockcypher) return 'Use API Keys';
-    if (hasEtherscan) return 'Use Etherscan API';
-    if (hasBlockcypher) return 'Use BlockCypher API';
-    return 'Simulate All';
+    const keys = [];
+    if (etherscanApiKeyInput.trim()) keys.push('Etherscan');
+    if (blockcypherApiKeyInput.trim()) keys.push('BlockCypher');
+    if (alchemyApiKeyInput.trim()) keys.push('Alchemy');
+    
+    if (keys.length === 0) return 'Simulate All';
+    if (keys.length === 1) return `Use ${keys[0]} API`;
+    if (keys.length === 2) return `Use ${keys.join(' & ')} APIs`;
+    return 'Use All API Keys';
   }
   
 
@@ -411,7 +427,7 @@ export default function Home() {
           <Wallet className="h-8 w-8" /> ETH Balance Auditor
         </h1>
         <p className="text-muted-foreground">
-          Enter seed phrases and API keys (Etherscan/BlockCypher) to derive addresses and fetch their real ETH balances. Or, use the automatic generator.
+          Enter seed phrases and API keys (Etherscan/BlockCypher/Alchemy) to derive addresses and fetch their real ETH balances. Or, use the automatic generator.
         </p>
       </header>
 
@@ -423,7 +439,7 @@ export default function Home() {
           This application is for demonstration and educational purposes.
           <ul>
             <li>It uses <code>ethers.js</code> for LOCAL address derivation. Your seed phrases are NOT sent to any server for derivation.</li>
-            <li>It WILL attempt to use provided API keys (Etherscan, BlockCypher) to fetch REAL ETH balances.</li>
+            <li>It WILL attempt to use provided API keys (Etherscan, BlockCypher, Alchemy) to fetch REAL ETH balances.</li>
             <li>If API keys are missing, invalid, or calls fail, it falls back to RANDOMLY SIMULATED ETH balances (for manual input).</li>
             <li>The automatic generator attempts to find wallets with balances using the provided keys. If API calls fail (e.g. rate limits), results may show 0 balance with 'Unknown' source.</li>
             <li><strong>Exposing real seed phrases can lead to PERMANENT LOSS OF FUNDS. The pre-filled API keys are for demonstration and may be rate-limited or revoked.</strong></li>
@@ -435,11 +451,11 @@ export default function Home() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5" /> Input Seed Phrases & API Keys</CardTitle>
           <CardDescription>
-            Provide seed phrases (one per line) and your Etherscan/BlockCypher API keys for manual checking.
+            Provide seed phrases (one per line) and your Etherscan/BlockCypher/Alchemy API keys for manual checking.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="md:col-span-1 space-y-3">
+        <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="md:col-span-2 lg:col-span-1 space-y-3">
             <Textarea
               placeholder="Paste your seed phrases here, one per line..."
               value={seedPhrasesInput}
@@ -462,7 +478,7 @@ export default function Home() {
               </Button>
             </div>
           </div>
-          <div className="md:col-span-1 space-y-3">
+          <div className="space-y-3">
             <Input
               type="password"
               placeholder="Enter Etherscan API Key"
@@ -476,11 +492,11 @@ export default function Home() {
               <DatabaseZap className="h-4 w-4" />
               <AlertTitle className="font-semibold">Etherscan API</AlertTitle>
               <AlertDescription>
-                Used to fetch actual ETH balances. Pre-filled key is for demo.
+                For ETH balances. Pre-filled key is for demo.
               </AlertDescription>
             </Alert>
           </div>
-          <div className="md:col-span-1 space-y-3">
+          <div className="space-y-3">
             <Input
               type="password"
               placeholder="Enter BlockCypher API Key"
@@ -493,6 +509,24 @@ export default function Home() {
             <Alert variant="info" className="text-xs mt-2">
               <DatabaseZap className="h-4 w-4" />
               <AlertTitle className="font-semibold">BlockCypher API</AlertTitle>
+              <AlertDescription>
+                Alternative for ETH balances. Pre-filled key is for demo.
+              </AlertDescription>
+            </Alert>
+          </div>
+           <div className="space-y-3">
+            <Input
+              type="password"
+              placeholder="Enter Alchemy API Key"
+              value={alchemyApiKeyInput}
+              onChange={(e) => setAlchemyApiKeyInput(e.target.value)}
+              className="text-sm border-input focus:ring-accent focus:border-accent font-mono"
+              disabled={isProcessingManual || isAutoGenerating}
+              aria-label="Alchemy API Key Input"
+            />
+            <Alert variant="info" className="text-xs mt-2">
+              <DatabaseZap className="h-4 w-4" />
+              <AlertTitle className="font-semibold">Alchemy API</AlertTitle>
               <AlertDescription>
                 Alternative for ETH balances. Pre-filled key is for demo.
               </AlertDescription>
@@ -623,8 +657,8 @@ export default function Home() {
             <Button
               onClick={stopAutoGenerating}
               disabled={isProcessingManual || !isAutoGenerating}
-              variant="destructive" // Keeps original destructive variant styling
-              className="w-28" // No need to override bg/hover here if destructive provides it
+              variant="destructive" 
+              className="w-28" 
               aria-label="Stop Generating"
             >
               <Square className="mr-2 h-4 w-4" />
@@ -652,6 +686,7 @@ export default function Home() {
             <CardDescription>
               Etherscan API (masked): {etherscanApiKeyInput.trim() ? maskValue(etherscanApiKeyInput, 4, 4) : 'N/A'}.
               BlockCypher API (masked): {blockcypherApiKeyInput.trim() ? maskValue(blockcypherApiKeyInput, 4, 4) : 'N/A'}.
+              Alchemy API (masked): {alchemyApiKeyInput.trim() ? maskValue(alchemyApiKeyInput, 4, 4) : 'N/A'}.
               Displaying last {MAX_DISPLAYED_RESULTS} results (newest first).
             </CardDescription>
           </CardHeader>
@@ -770,3 +805,5 @@ export default function Home() {
     </div>
   );
 }
+
+    

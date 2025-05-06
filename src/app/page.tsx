@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,7 +15,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Terminal, Loader2, Wallet, Network, Coins, Copy, Eraser, Trash2, KeyRound, Info, ExternalLink, SearchCheck, ShieldAlert, DatabaseZap } from 'lucide-react';
+import { Terminal, Loader2, Wallet, Network, Coins, Copy, Eraser, Trash2, KeyRound, Info, ExternalLink, SearchCheck, ShieldAlert, DatabaseZap, Pause, Play } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { processSeedPhrasesAndFetchBalances, type ProcessedWalletInfo, type AddressBalanceResult } from './actions';
@@ -254,6 +254,86 @@ export default function Home() {
     return 'Simulate All';
   }
 
+  // Automatic Seed Phrase Generation Logic
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationPaused, setGenerationPaused] = useState(false);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null); // Store the interval ID
+
+  const startGenerating = () => {
+    setIsGenerating(true);
+    setGenerationPaused(false); // Ensure it's not paused when starting
+  
+    intervalRef.current = setInterval(async () => {
+      if (!generationPaused) {
+        try {
+          const input = {
+            numSeedPhrases: numSeedPhrasesToGenerate,
+            etherscanApiKey: etherscanApiKeyInput || '',
+            blockcypherApiKey: blockcypherApiKeyInput || '',
+          };
+  
+          const generatedData: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
+          const processedData = generatedData.map(item => ({
+            seedPhrase: item.seedPhrase,
+            derivedAddress: item.derivedAddress,
+            walletType: item.walletType,
+            cryptoName: item.cryptoName,
+            balanceData: {
+              address: item.derivedAddress,
+              balance: item.balance,
+              currency: item.cryptoName,
+              isRealData: true,
+              dataSource: item.dataSource,
+            },
+            error: null,
+            derivationError: null,
+            isLoading: false,
+          }));
+  
+          // Update the results state by appending new results
+          setResults(prevResults => [...prevResults, ...processedData]);
+  
+        } catch (error: any) {
+          console.error("Error generating and checking seed phrases:", error);
+          toast({
+            title: 'Generation and Check Error',
+            description: `An error occurred: ${error.message}`,
+            variant: 'destructive',
+          });
+          stopGenerating();
+        }
+      }
+    }, 2000); // Adjust interval as needed
+  };
+
+  // Function to pause the seed phrase generation
+  const pauseGenerating = () => {
+    setGenerationPaused(true);
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+    }
+  };
+
+  // Function to stop the seed phrase generation
+  const stopGenerating = () => {
+    setIsGenerating(false);
+    setGenerationPaused(false);
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null; // Clear the interval ID after stopping
+    }
+  };
+  
+  useEffect(() => {
+    // Cleanup function in useEffect to clear the interval when the component unmounts
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, []);
+  
+
   return (
     <div className="container mx-auto p-4 md:p-8">
       <header className="mb-8 text-center">
@@ -421,6 +501,52 @@ SIMULATION ONLY - DO NOT USE REAL SEED PHRASES UNLESS YOU ARE CERTAIN OF THE ENV
               </>
             )}
           </Button>
+          <div className="flex items-center space-x-2">
+            {!isGenerating ? (
+              <Button
+                onClick={startGenerating}
+                disabled={isProcessing}
+                className="w-1/3 sm:w-auto"
+                aria-label="Start Generating"
+              >
+                <Play className="mr-2 h-4 w-4" />
+                Start
+              </Button>
+            ) : generationPaused ? (
+              <Button
+                onClick={startGenerating}
+                disabled={isProcessing}
+                className="w-1/3 sm:w-auto"
+                aria-label="Resume Generating"
+              >
+                <Play className="mr-2 h-4 w-4" />
+                Resume
+              </Button>
+            ) : (
+              <Button
+                onClick={pauseGenerating}
+                disabled={isProcessing}
+                variant="secondary"
+                className="w-1/3 sm:w-auto"
+                aria-label="Pause Generating"
+              >
+                <Pause className="mr-2 h-4 w-4" />
+                Pause
+              </Button>
+            )}
+            {isGenerating && (
+              <Button
+                onClick={stopGenerating}
+                disabled={isProcessing}
+                variant="outline"
+                className="w-1/3 sm:w-auto"
+                aria-label="Stop Generating"
+              >
+                <Pause className="mr-2 h-4 w-4" />
+                Stop
+              </Button>
+            )}
+          </div>
         </CardFooter>
       </Card>
 

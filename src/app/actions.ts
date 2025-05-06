@@ -29,12 +29,13 @@ export interface RealWalletDataResult {
 }
 
 /**
- * Represents the simulated balance data fetched for a specific address.
+ * Represents the balance data fetched for a specific address.
+ * Can be real (from Etherscan) or simulated.
  */
-export interface SimulatedAddressBalanceResult {
+export interface AddressBalanceResult {
   address: string; // The address for which the balance was fetched
   balance: number;
-  currency: string;
+  currency: string; // e.g., ETH
 }
 
 
@@ -167,27 +168,47 @@ export async function getRealWalletData(apiKey: string, seedPhrase: string): Pro
 
 
 /**
- * Simulates fetching the balance for a given Ethereum address.
- * This function DOES NOT connect to any real blockchain or API. It generates random data.
+ * Fetches the ETH balance for a given Ethereum address.
+ * If an Etherscan API key is provided, it attempts to fetch the real balance.
+ * Otherwise, it falls back to simulating the balance.
  *
- * @param address The Ethereum address to simulate fetching the balance for.
- * @param apiKey (Optional) A conceptual API key. Not used in the simulation logic but included for conceptual consistency.
- * @returns A Promise that resolves with the simulated address balance.
- * @throws If a simulation error occurs.
+ * @param address The Ethereum address to fetch the balance for.
+ * @param etherscanApiKey (Optional) The Etherscan API key.
+ * @returns A Promise that resolves with the address balance (real or simulated).
+ * @throws If an error occurs during fetching or simulation.
  */
-export async function simulateFetchAddressBalance(address: string, apiKey?: string): Promise<SimulatedAddressBalanceResult> {
-  console.log(`Simulating balance fetch for address: ${address}${apiKey ? ` with conceptual API key starting with ${apiKey.substring(0,4)}...` : ''}`);
+export async function fetchAddressBalance(address: string, etherscanApiKey?: string): Promise<AddressBalanceResult> {
+  console.log(`Fetching balance for address: ${address}${etherscanApiKey ? ` using Etherscan API key.` : ' (simulation mode).'}`);
 
   if (!ethers.isAddress(address)) {
-    throw new Error(`Invalid Ethereum address provided: ${address}. (Address Balance Simulation)`);
+    throw new Error(`Invalid Ethereum address provided: ${address}.`);
   }
-  
+
+  if (etherscanApiKey) {
+    try {
+      const provider = new ethers.EtherscanProvider("mainnet", etherscanApiKey);
+      const balanceBigInt = await provider.getBalance(address);
+      const balanceEth = ethers.formatEther(balanceBigInt);
+      console.log(`Real balance for ${address} from Etherscan: ${balanceEth} ETH`);
+      return {
+        address,
+        balance: parseFloat(balanceEth),
+        currency: 'ETH',
+      };
+    } catch (error: any) {
+      console.error(`Etherscan API error for ${address}: ${error.message}. Falling back to simulation.`);
+      // Fall through to simulation if Etherscan API fails
+    }
+  }
+
+  // Simulation fallback
+  console.log(`Simulating balance for ${address} as Etherscan API key not provided or API call failed.`);
   // Simulate network delay
   const delay = Math.random() * 700 + 300; // 300ms to 1000ms delay
   await new Promise(resolve => setTimeout(resolve, delay));
 
-  // Simulate potential network errors occasionally
-  if (Math.random() < 0.04) { // 4% chance of error
+  // Simulate potential network errors occasionally for simulation
+  if (Math.random() < 0.04) { // 4% chance of error for simulation
     console.warn(`Simulated network error during balance fetch for address: ${address}.`);
     throw new Error(`Simulated network error: Failed to fetch balance for ${address}. (Address Balance Simulation)`);
   }
@@ -204,3 +225,5 @@ export async function simulateFetchAddressBalance(address: string, apiKey?: stri
     currency,
   };
 }
+
+    

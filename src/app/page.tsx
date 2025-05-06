@@ -16,10 +16,10 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Terminal, Loader2, Wallet, Network, Coins, Copy, Eraser, Trash2, KeyRound, Info, Eye, Server } from 'lucide-react';
+import { Terminal, Loader2, Wallet, Network, Coins, Copy, Eraser, Trash2, KeyRound, Info, Eye, Server, ExternalLink } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { analyzeSeedPhraseAndSimulateBalance, getRealWalletData, simulateFetchAddressBalance, type SeedPhraseAuditResult, type RealWalletDataResult, type SimulatedAddressBalanceResult } from './actions';
+import { analyzeSeedPhraseAndSimulateBalance, getRealWalletData, fetchAddressBalance, type SeedPhraseAuditResult, type RealWalletDataResult, type AddressBalanceResult } from './actions';
 import { Separator } from '@/components/ui/separator';
 
 
@@ -32,7 +32,7 @@ interface ResultRow {
 
 interface AddressBalanceRow {
   address: string;
-  balanceData: SimulatedAddressBalanceResult | null;
+  balanceData: AddressBalanceResult | null;
   error: string | null;
   isLoading: boolean;
 }
@@ -139,7 +139,7 @@ export default function Home() {
     if (!apiKeyInput) {
        toast({
         title: 'API Key Missing',
-        description: 'Please enter a conceptual API key to simulate real data fetching.',
+        description: 'Please enter an Etherscan API key to fetch real data or simulate real data fetching.',
         variant: 'destructive',
       });
       return;
@@ -149,10 +149,14 @@ export default function Home() {
     setRealDataResult(null); // Clear previous results
 
     try {
+      // For this conceptual "Real Data" section, we are still using the simulation `getRealWalletData`
+      // as it's designed to show a broader range of (simulated) assets, not just ETH.
+      // The `fetchAddressBalance` function, which can use the API key for Etherscan, is used
+      // in the "Fetch Address Balances" section for individual ETH balances.
       const result = await getRealWalletData(apiKeyInput, firstPhrase);
       setRealDataResult(result);
       toast({
-        title: 'Conceptual Real Data Simulation Complete',
+        title: 'Conceptual "Real" Data Simulation Complete',
         description: result.message,
       });
     } catch (error: any) {
@@ -165,7 +169,7 @@ export default function Home() {
         message: `Simulation Error: ${error.message}`,
       });
       toast({
-        title: 'Conceptual Real Data Simulation Error',
+        title: 'Conceptual "Real" Data Simulation Error',
         description: error.message,
         variant: 'destructive',
       });
@@ -186,6 +190,15 @@ export default function Home() {
       });
       return;
     }
+     if (!apiKeyInput) {
+       toast({
+        title: 'Etherscan API Key Recommended',
+        description: 'For real ETH balances, please provide an Etherscan API key. Otherwise, balances will be simulated.',
+        variant: 'default',
+      });
+      // Continue with simulation if no API key
+    }
+
 
     setIsFetchingAddressBalances(true);
     setAddressBalances(
@@ -199,8 +212,8 @@ export default function Home() {
 
     for (const address of derivedAddresses) {
       try {
-        // Use apiKeyInput if provided, otherwise pass undefined
-        const balanceData = await simulateFetchAddressBalance(address, apiKeyInput || undefined);
+        // Pass the Etherscan API key (if provided) to fetchAddressBalance
+        const balanceData = await fetchAddressBalance(address, apiKeyInput || undefined);
         setAddressBalances(prevBalances =>
           prevBalances.map(b =>
             b.address === address && b.isLoading
@@ -225,8 +238,8 @@ export default function Home() {
     }
     setIsFetchingAddressBalances(false);
     toast({
-      title: 'Address Balance Simulation Complete',
-      description: `Finished fetching simulated balances for ${derivedAddresses.length} addresses.`,
+      title: 'Address Balance Fetch Complete',
+      description: `Finished fetching balances for ${derivedAddresses.length} addresses. ${apiKeyInput ? 'Attempted to use Etherscan for real ETH balances.' : 'Balances are simulated.'}`,
     });
   };
 
@@ -291,27 +304,25 @@ export default function Home() {
     <div className="container mx-auto p-4 md:p-8">
       <header className="mb-8 text-center">
         <h1 className="text-3xl font-bold text-primary mb-2 flex items-center justify-center gap-2">
-          <Wallet className="h-8 w-8" /> Seed Phrase Auditor & Simulator
+          <Wallet className="h-8 w-8" /> Seed Phrase Auditor & Balancer
         </h1>
         <p className="text-muted-foreground">
-          Enter seed phrases to simulate address derivation and balance retrieval.
-          Optionally, provide a conceptual API key to simulate fetching "real" data.
+          Enter seed phrases to simulate address derivation and (optionally) fetch real ETH balances via Etherscan.
         </p>
       </header>
 
       <Alert variant="destructive" className="mb-6 bg-destructive/10 border-destructive/50 text-destructive dark:text-destructive [&>svg]:text-destructive">
         <Terminal className="h-4 w-4" />
-        <AlertTitle>Critical Security Warning & Simulation Notice</AlertTitle>
+        <AlertTitle>Critical Security Warning & Usage Notice</AlertTitle>
         <AlertDescription>
-          <strong>NEVER enter REAL seed phrases or REAL API keys into ANY online tool, especially this one.</strong>
-          This application is for educational and demonstration purposes ONLY.
+          <strong>NEVER enter REAL seed phrases into ANY online tool you do not fully trust, especially this one if it's publicly hosted.</strong>
+          This application is for educational and demonstration purposes.
           <ul>
-            <li>It uses <code>ethers.js</code> for LOCAL, SIMULATED address derivation.</li>
-            <li>It <strong>DOES NOT</strong> connect to real wallets or blockchains for standard audit.</li>
-            <li>Balances for standard audit are RANDOMLY GENERATED.</li>
-            <li>The "Fetch Real Data (Simulated)" feature is also a SIMULATION. It mimics how an API key might be used but <strong>DOES NOT</strong> make actual external API calls with your key. Data is still randomly generated.</li>
-            <li>The "Fetch Address Balances (Simulated)" feature also uses RANDOMLY GENERATED data and does not query any real blockchain.</li>
-            <li><strong>Exposing real seed phrases or API keys can lead to PERMANENT LOSS OF FUNDS.</strong></li>
+            <li>It uses <code>ethers.js</code> for LOCAL address derivation from seed phrases.</li>
+            <li>The "Standard Audit" generates RANDOMLY SIMULATED balances for various illustrative tokens.</li>
+            <li>The "Fetch Real Data (Simulated)" feature is also a SIMULATION. It mimics how an API key might be used for a broad portfolio but <strong>DOES NOT</strong> make actual external API calls with your key for this section; data is still randomly generated.</li>
+            <li>The "Fetch Address Balances" feature WILL attempt to use the provided Etherscan API key to fetch REAL ETH balances for the derived addresses. If no key is provided or the call fails, it falls back to RANDOMLY GENERATED ETH balances.</li>
+            <li><strong>Exposing real seed phrases can lead to PERMANENT LOSS OF FUNDS. Only use the API key feature if you understand the risks and are using a key with appropriate permissions.</strong></li>
           </ul>
         </AlertDescription>
       </Alert>
@@ -319,12 +330,13 @@ export default function Home() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
         <Card className="shadow-md">
           <CardHeader>
-            <CardTitle>Standard Simulation Input</CardTitle>
-            <CardDescription>For local address derivation and random balance simulation.</CardDescription>
+            <CardTitle>Seed Phrase Input</CardTitle>
+            <CardDescription>For local address derivation. Balances in the "Standard Audit Results" table below are simulated.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <Textarea
-              placeholder="Paste your seed phrases here, one per line (e.g., standard 12 or 24 words)..."
+              placeholder="Paste your seed phrases here, one per line (e.g., standard 12 or 24 words)...
+SIMULATION ONLY - DO NOT USE REAL SEED PHRASES"
               value={seedPhrasesInput}
               onChange={(e) => setSeedPhrasesInput(e.target.value)}
               rows={6}
@@ -344,7 +356,7 @@ export default function Home() {
                     Processing Standard Audit...
                   </>
                 ) : (
-                  'Run Standard Audit (Simulate)'
+                  'Run Standard Audit (Simulate Balances)'
                 )}
               </Button>
           </CardContent>
@@ -352,38 +364,38 @@ export default function Home() {
 
         <Card className="shadow-md">
           <CardHeader>
-            <CardTitle>Conceptual "Real" Data Fetch (Simulated)</CardTitle>
+            <CardTitle>API Key & Conceptual "Real" Data</CardTitle>
             <CardDescription>
-              Uses the <strong>first seed phrase</strong> from the left input and a conceptual API key below.
-              This is still a SIMULATION and does not use a real API.
+              Enter your Etherscan API key to fetch <strong>real ETH balances</strong> in the "Address Balances" table below.
+              The "Fetch 'Real' Data" button demonstrates a <em>simulated</em> broad portfolio.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
              <Input
-                type="password" // Mask API key input
-                placeholder="Enter conceptual API Key here (SIMULATION ONLY)"
+                type="password" 
+                placeholder="Enter Etherscan API Key (Optional)"
                 value={apiKeyInput}
                 onChange={(e) => setApiKeyInput(e.target.value)}
                 className="text-sm border-input focus:ring-accent focus:border-accent font-mono"
                 disabled={isProcessing || isFetchingRealData || isFetchingAddressBalances}
-                aria-label="Conceptual API Key Input"
+                aria-label="Etherscan API Key Input"
               />
             <Button
               onClick={handleFetchRealData}
               disabled={isProcessing || isFetchingRealData || isFetchingAddressBalances || !seedPhrasesInput.trim() || !apiKeyInput.trim()}
               variant="secondary"
               className="w-full"
-              aria-label="Fetch Real Data Simulated Button"
+              aria-label="Fetch Conceptual Real Data Simulated Button"
             >
               {isFetchingRealData ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Simulating Real Data Fetch...
+                  Simulating Broad Portfolio...
                 </>
               ) : (
                 <>
                   <KeyRound className="mr-2 h-4 w-4" />
-                  Fetch "Real" Data (Simulated)
+                  Fetch "Real" Data (Simulated Portfolio)
                 </>
               )}
             </Button>
@@ -391,9 +403,10 @@ export default function Home() {
            <CardFooter>
              <Alert variant="default" className="text-xs mt-2 bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/30 dark:border-blue-700/50 dark:text-blue-300 [&>svg]:text-blue-700 dark:[&>svg]:text-blue-300">
                 <Info className="h-4 w-4"/>
-                <AlertTitle className="font-semibold">How this "Real Data" Simulation Works</AlertTitle>
+                <AlertTitle className="font-semibold">API Key Usage</AlertTitle>
                 <AlertDescription>
-                    This tool will take the <strong>first seed phrase</strong> you entered on the left and your <strong>conceptual API key</strong>. It will then simulate deriving an address and fetching various (randomly generated) token balances, as if it were using a real blockchain data API. <strong>No actual API calls are made, and your key is not sent anywhere.</strong>
+                    The Etherscan API key you provide will be used by the "Fetch Address Balances" button to attempt to get <strong>actual ETH balances</strong> for the derived addresses.
+                    The "Fetch 'Real' Data (Simulated Portfolio)" button uses the first seed phrase and API key for a <em>conceptual simulation</em> of diverse token balances (still randomly generated) and does not reflect real multi-asset holdings.
                 </AlertDescription>
             </Alert>
            </CardFooter>
@@ -431,12 +444,12 @@ export default function Home() {
               {isFetchingAddressBalances ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Fetching Balances...
+                  Fetching ETH Balances...
                 </>
               ) : (
                 <>
                   <Server className="mr-2 h-4 w-4" />
-                  Fetch Address Balances (Simulated)
+                  Fetch Address Balances {apiKeyInput ? '(Use API Key)' : '(Simulate)'}
                 </>
               )}
             </Button>
@@ -446,11 +459,11 @@ export default function Home() {
       {results.length > 0 && (
         <Card className="shadow-md mb-6">
           <CardHeader>
-            <CardTitle>Standard Audit Results (Simulated)</CardTitle>
+            <CardTitle>Standard Audit Results (Simulated Balances)</CardTitle>
           </CardHeader>
           <CardContent>
             <Table>
-              <TableCaption>Simulated derivation and randomly generated balance results for multiple phrases.</TableCaption>
+              <TableCaption>Simulated derivation and randomly generated multi-asset balance results for multiple phrases.</TableCaption>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[20%]">Seed Phrase (Masked)</TableHead>
@@ -492,6 +505,9 @@ export default function Home() {
                           >
                             <Copy className="h-3 w-3" />
                           </Button>
+                           <a href={`https://etherscan.io/address/${result.auditData.derivedAddress}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700">
+                              <ExternalLink className="h-3 w-3" />
+                           </a>
                         </div>
                       ) : result.error ? (
                         '-'
@@ -552,20 +568,22 @@ export default function Home() {
       {addressBalances.length > 0 && (
         <Card className="shadow-md mb-6">
           <CardHeader>
-            <CardTitle>Simulated Address Balances</CardTitle>
+            <CardTitle>Address ETH Balances</CardTitle>
             <CardDescription>
-              {apiKeyInput ? `Conceptual API Key (masked): ${maskValue(apiKeyInput,4,4)} may have been conceptually used for this simulation.` : 'No API key was provided for this simulation.'}
+              {apiKeyInput ? `Attempted to fetch REAL ETH balances using Etherscan API Key (masked): ${maskValue(apiKeyInput,4,4)}.` : 'No Etherscan API key provided; ETH balances are SIMULATED.'}
               <br/>
-              These are RANDOMLY GENERATED balances for derived addresses. No real blockchain was queried.
+              {apiKeyInput && 'If an API call failed for an address, its balance will be simulated instead.'}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
-              <TableCaption>Simulated balance results for derived Ethereum addresses.</TableCaption>
+              <TableCaption>
+                {apiKeyInput ? 'Real (via Etherscan API) or simulated ETH balance results.' : 'Simulated ETH balance results for derived addresses.'}
+              </TableCaption>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[60%]">Address (Masked)</TableHead>
-                  <TableHead className="w-[30%] text-right">Simulated Balance (ETH)</TableHead>
+                  <TableHead className="w-[30%] text-right">Balance (ETH)</TableHead>
                   <TableHead className="w-[10%] text-center">Status</TableHead>
                 </TableRow>
               </TableHeader>
@@ -584,6 +602,9 @@ export default function Home() {
                         >
                           <Copy className="h-3 w-3" />
                         </Button>
+                         <a href={`https://etherscan.io/address/${item.address}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700">
+                            <ExternalLink className="h-3 w-3" />
+                         </a>
                       </div>
                     </TableCell>
                     <TableCell className="text-right align-top">
@@ -592,7 +613,7 @@ export default function Home() {
                           <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-accent/20 text-accent text-[10px] font-bold shrink-0">
                             {getCurrencyIcon(item.balanceData.currency)}
                           </span>
-                          {item.balanceData.balance.toFixed(4)}{' '}
+                          {item.balanceData.balance.toFixed(6)}{' '} {/* Increased precision for ETH */}
                           <span className="text-muted-foreground text-[10px] shrink-0">{item.balanceData.currency}</span>
                         </span>
                       ) : item.error ? (
@@ -607,7 +628,7 @@ export default function Home() {
                       ) : item.error ? (
                         <span className="text-destructive text-xs font-semibold">Failed</span>
                       ) : (
-                        <span className="text-green-600 text-xs font-semibold">Success</span>
+                        <span className="text-green-600 text-xs font-semibold">Fetched</span>
                       )}
                     </TableCell>
                   </TableRow>
@@ -622,9 +643,9 @@ export default function Home() {
       {realDataResult && (
         <Card className="shadow-md">
           <CardHeader>
-            <CardTitle>Conceptual "Real" Data Fetch Result (Simulated)</CardTitle>
+            <CardTitle>Conceptual "Real" Data Fetch Result (Simulated Portfolio)</CardTitle>
             <CardDescription>
-              This data is SIMULATED. No actual API call was made using your key.
+              This data is SIMULATED for a diverse portfolio. No actual multi-asset API call was made.
               Showing results for seed phrase: {maskValue(realDataResult.seedPhrase, 6, 4)}
               {realDataResult.apiKeyUsed && ` (Conceptual API Key: ${realDataResult.apiKeyUsed})`}
             </CardDescription>
@@ -636,7 +657,12 @@ export default function Home() {
                     <span className="font-mono flex items-center gap-1">
                         {maskValue(realDataResult.derivedAddress, 8,6)}
                         {realDataResult.derivedAddress !== "Error" && 
+                          <>
                             <Button variant="ghost" size="icon" className="h-5 w-5 p-0" onClick={() => handleCopyText(realDataResult.derivedAddress, "Address")}><Copy className="h-3 w-3"/></Button>
+                            <a href={`https://etherscan.io/address/${realDataResult.derivedAddress}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700">
+                                <ExternalLink className="h-3 w-3" />
+                            </a>
+                          </>
                         }
                     </span>
                 </p>
@@ -647,7 +673,7 @@ export default function Home() {
 
             {realDataResult.simulatedBalances && realDataResult.simulatedBalances.length > 0 && (
               <>
-                <h4 className="text-md font-semibold mb-2">Simulated Asset Balances:</h4>
+                <h4 className="text-md font-semibold mb-2">Simulated Asset Balances (Illustrative):</h4>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -691,3 +717,5 @@ export default function Home() {
     </div>
   );
 }
+
+    

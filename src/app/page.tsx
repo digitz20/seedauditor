@@ -14,10 +14,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Terminal, Loader2 } from "lucide-react";
+import { Terminal, Loader2, Wallet } from "lucide-react"; // Added Wallet icon
 import { simulateFetchBalance, type SimulatedBalance } from "@/lib/simulator";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"; // Ensure Card components are imported
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface ResultRow {
   seedPhrase: string;
@@ -69,7 +69,7 @@ export default function Home() {
     for (let i = 0; i < phrases.length; i++) {
       const phrase = phrases[i];
       try {
-        // IMPORTANT: Using the simulation function
+        // IMPORTANT: Using the simulation function (now with ethers.js concepts)
         const balanceData = await simulateFetchBalance(phrase);
         setResults((prevResults) =>
           prevResults.map((r, index) =>
@@ -79,7 +79,7 @@ export default function Home() {
           )
         );
       } catch (error: any) {
-        console.warn("Simulated error caught:", error.message); // Use console.warn instead of console.error for expected simulation errors
+        // No need to log again here, simulator already logs warnings
         setResults((prevResults) =>
           prevResults.map((r, index) =>
             index === i
@@ -119,12 +119,20 @@ export default function Home() {
     }
   };
 
+  // Function to mask seed phrase and address
+  const maskValue = (value: string, start = 5, end = 5) => {
+    if (!value) return "";
+    return `${value.substring(0, start)}...${value.substring(value.length - end)}`;
+  }
+
   return (
     <div className="container mx-auto p-4 md:p-8">
       <header className="mb-8 text-center">
-        <h1 className="text-3xl font-bold text-primary mb-2">SeedPhrase Auditor</h1>
+        <h1 className="text-3xl font-bold text-primary mb-2 flex items-center justify-center gap-2">
+           <Wallet className="h-8 w-8"/> Seed Phrase Auditor
+        </h1>
         <p className="text-muted-foreground">
-          Enter seed phrases to simulate balance retrieval.
+          Enter seed phrases to simulate balance retrieval and address derivation.
         </p>
       </header>
 
@@ -132,7 +140,7 @@ export default function Home() {
         <Terminal className="h-4 w-4" />
         <AlertTitle>Security Warning & Simulation Notice</AlertTitle>
         <AlertDescription>
-          <strong>Never enter real seed phrases into any online tool, including this one.</strong> This application is for demonstration purposes only and simulates wallet interactions. It does not connect to real wallets or blockchains. Balances shown are randomly generated.
+          <strong>Never enter real seed phrases into any online tool, including this one.</strong> This application is for demonstration purposes only and simulates wallet interactions using concepts from libraries like <code>ethers.js</code>. It <strong>does not</strong> connect to real wallets or blockchains. Addresses and balances shown are randomly generated or simulated for illustrative purposes. Handling real seed phrases requires extreme caution and should not be done in a web browser context like this.
         </AlertDescription>
       </Alert>
 
@@ -142,7 +150,7 @@ export default function Home() {
           value={seedPhrasesInput}
           onChange={(e) => setSeedPhrasesInput(e.target.value)}
           rows={10}
-          className="text-sm border-input focus:ring-accent focus:border-accent"
+          className="text-sm border-input focus:ring-accent focus:border-accent font-mono" // Added font-mono
           disabled={isProcessing}
         />
         <Button
@@ -172,25 +180,29 @@ export default function Home() {
               <TableCaption>Simulated balance results for entered phrases.</TableCaption>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[60%]">Seed Phrase (Masked)</TableHead>
-                  <TableHead className="text-right">Simulated Balance</TableHead>
-                  <TableHead className="w-[100px] text-right">Status</TableHead>
+                  <TableHead className="w-[30%]">Seed Phrase (Masked)</TableHead>
+                  <TableHead className="w-[40%]">Simulated Address (Masked)</TableHead>
+                  <TableHead className="text-right w-[20%]">Simulated Balance</TableHead>
+                  <TableHead className="w-[10%] text-right">Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {results.map((result, index) => (
                   <TableRow key={index} className="hover:bg-secondary/50">
                     <TableCell className="font-mono text-xs">
-                      {`${result.seedPhrase.substring(0, 5)}...${result.seedPhrase.substring(result.seedPhrase.length - 5)}`}
+                      {maskValue(result.seedPhrase)}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                       {result.balanceData ? maskValue(result.balanceData.address, 6, 4) : result.error ? '-' : 'Deriving...'}
                     </TableCell>
                     <TableCell className="text-right">
                       {result.balanceData ? (
-                        <span className="flex items-center justify-end gap-2 font-medium">
-                           <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-accent/20 text-accent text-xs font-bold">
+                        <span className="flex items-center justify-end gap-1 font-medium">
+                           <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-accent/20 text-accent text-xs font-bold shrink-0">
                              {getCurrencyIcon(result.balanceData.currency)}
                            </span>
                           {result.balanceData.balance.toFixed(4)}{" "}
-                          <span className="text-muted-foreground text-xs">{result.balanceData.currency}</span>
+                          <span className="text-muted-foreground text-xs shrink-0">{result.balanceData.currency}</span>
                         </span>
                       ) : result.error ? (
                         <span className="text-destructive text-xs italic">Error</span>

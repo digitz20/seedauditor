@@ -1,4 +1,3 @@
-// @ts-nocheck
 'use client';
 
 import * as React from 'react';
@@ -20,10 +19,11 @@ import { Terminal, Loader2, Wallet, Network, Coins, Copy, Eraser, Trash2, KeyRou
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { processSeedPhrasesAndFetchBalances, type ProcessedWalletInfo, type AddressBalanceResult } from './actions';
+import { generateAndCheckSeedPhrases, type GenerateAndCheckSeedPhrasesOutput } from '@/ai/flows/random-seed-phrase';
 
 
 interface ResultRow extends ProcessedWalletInfo {
-  isLoading: boolean; 
+  isLoading: boolean;
 }
 
 
@@ -33,7 +33,8 @@ export default function Home() {
   const [blockcypherApiKeyInput, setBlockcypherApiKeyInput] = useState<string>('41ccb7c601ef4bad99b3698cfcea9a8c'); // Default BlockCypher API Key
   const [results, setResults] = useState<ResultRow[]>([]);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  
+  const [numSeedPhrasesToGenerate, setNumSeedPhrasesToGenerate] = useState<number>(1); // Default number of seed phrases to generate
+
   const { toast } = useToast();
 
   const handleFetchBalances = async () => {
@@ -50,7 +51,7 @@ export default function Home() {
       });
       return;
     }
-    
+
     const hasEtherscanKey = etherscanApiKeyInput.trim();
     const hasBlockcypherKey = blockcypherApiKeyInput.trim();
 
@@ -58,16 +59,16 @@ export default function Home() {
       toast({
         title: 'API Key Recommended',
         description: 'Please enter an Etherscan or BlockCypher API key for real ETH balances. Balances will be simulated.',
-        variant: 'default', 
+        variant: 'default',
       });
     } else if (!hasEtherscanKey) {
-       toast({
+      toast({
         title: 'Etherscan API Key Missing',
         description: 'Etherscan API key is missing. Will attempt to use BlockCypher or simulate.',
         variant: 'default',
       });
     } else if (!hasBlockcypherKey) {
-       toast({
+      toast({
         title: 'BlockCypher API Key Missing',
         description: 'BlockCypher API key is missing. Will attempt to use Etherscan or simulate.',
         variant: 'default',
@@ -94,17 +95,17 @@ export default function Home() {
         balanceData: null,
         error: null,
         derivationError: null,
-        isLoading: true, 
+        isLoading: true,
       }))
     );
 
     try {
       const processedData = await processSeedPhrasesAndFetchBalances(
-        phrases, 
-        etherscanApiKeyInput || undefined, 
+        phrases,
+        etherscanApiKeyInput || undefined,
         blockcypherApiKeyInput || undefined
       );
-      
+
       setResults(processedData.map(data => ({ ...data, isLoading: false })));
 
       let toastMessage = `Finished processing ${phrases.length} seed phrases. `;
@@ -130,10 +131,60 @@ export default function Home() {
         description: `An unexpected error occurred: ${error.message}. Some results might be incomplete.`,
         variant: 'destructive',
       });
-      setResults(prevResults => prevResults.map(r => ({...r, isLoading: false, error: r.error || "Overall process failed" })));
+      setResults(prevResults => prevResults.map(r => ({ ...r, isLoading: false, error: r.error || "Overall process failed" })));
     }
 
     setIsProcessing(false);
+  };
+
+
+  const handleGenerateAndCheckSeedPhrases = async () => {
+    setIsProcessing(true);
+    setResults([]); // Clear previous results
+
+    try {
+      const input = {
+        numSeedPhrases: numSeedPhrasesToGenerate,
+        etherscanApiKey: etherscanApiKeyInput || '',
+        blockcypherApiKey: blockcypherApiKeyInput || '',
+      };
+
+      const generatedData: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
+
+      // Convert the GenerateAndCheckSeedPhrasesOutput to the ResultRow format
+      const processedData = generatedData.map(item => ({
+        seedPhrase: item.seedPhrase,
+        derivedAddress: item.derivedAddress,
+        walletType: item.walletType,
+        cryptoName: item.cryptoName,
+        balanceData: {
+          address: item.derivedAddress,
+          balance: item.balance,
+          currency: item.cryptoName,
+          isRealData: true, // Assuming the balance data is always real in this case
+          dataSource: item.dataSource,
+        },
+        error: null,
+        derivationError: null,
+        isLoading: false,
+      }));
+
+      setResults(processedData);
+
+      toast({
+        title: 'Seed Phrases Generated and Checked',
+        description: `Generated and checked ${numSeedPhrasesToGenerate} seed phrases.`,
+      });
+    } catch (error: any) {
+      console.error("Error generating and checking seed phrases:", error);
+      toast({
+        title: 'Generation and Check Error',
+        description: `An error occurred: ${error.message}`,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleClearInput = () => {
@@ -163,7 +214,7 @@ export default function Home() {
     if (!value || value.length < start + end + 3) return value;
     return `${value.substring(0, start)}...${value.substring(value.length - end)}`;
   };
-  
+
   const handleCopyText = async (textToCopy: string, type: string) => {
     if (!textToCopy) return;
     try {
@@ -181,7 +232,7 @@ export default function Home() {
       });
     }
   };
-  
+
   const getDataSourceTag = (dataSource: AddressBalanceResult['dataSource']) => {
     switch (dataSource) {
       case 'Etherscan API':
@@ -233,7 +284,7 @@ export default function Home() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5" /> Input Seed Phrases & API Keys</CardTitle>
           <CardDescription>
-            Provide seed phrases (one per line) and your Etherscan/BlockCypher API keys. 
+            Provide seed phrases (one per line) and your Etherscan/BlockCypher API keys.
             Real ETH balances will be fetched if keys are valid; otherwise, simulated balances are shown.
           </CardDescription>
         </CardHeader>
@@ -249,10 +300,22 @@ SIMULATION ONLY - DO NOT USE REAL SEED PHRASES UNLESS YOU ARE CERTAIN OF THE ENV
               disabled={isProcessing}
               aria-label="Seed Phrases Input"
             />
+             <div className="flex items-center space-x-2">
+              <Button
+                onClick={handleClearInput}
+                disabled={isProcessing || seedPhrasesInput.length === 0}
+                variant="outline"
+                className="w-1/2 sm:w-auto"
+                aria-label="Clear Seed Phrases Input Button"
+              >
+                <Eraser className="mr-2 h-4 w-4" />
+                Clear Input
+              </Button>
+            </div>
           </div>
           <div className="md:col-span-1 space-y-3">
             <Input
-              type="password" 
+              type="password"
               placeholder="Enter Etherscan API Key"
               value={etherscanApiKeyInput}
               onChange={(e) => setEtherscanApiKeyInput(e.target.value)}
@@ -260,17 +323,17 @@ SIMULATION ONLY - DO NOT USE REAL SEED PHRASES UNLESS YOU ARE CERTAIN OF THE ENV
               disabled={isProcessing}
               aria-label="Etherscan API Key Input"
             />
-             <Alert variant="default" className="text-xs mt-2 bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/30 dark:border-blue-700/50 dark:text-blue-300 [&>svg]:text-blue-700 dark:[&>svg]:text-blue-300">
-                <DatabaseZap className="h-4 w-4"/>
-                <AlertTitle className="font-semibold">Etherscan API</AlertTitle>
-                <AlertDescription>
-                    Used to fetch actual ETH balances. If invalid/missing, will try BlockCypher or simulate. Pre-filled key is for demo.
-                </AlertDescription>
+            <Alert variant="default" className="text-xs mt-2 bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/30 dark:border-blue-700/50 dark:text-blue-300 [&>svg]:text-blue-700 dark:[&>svg]:text-blue-300">
+              <DatabaseZap className="h-4 w-4" />
+              <AlertTitle className="font-semibold">Etherscan API</AlertTitle>
+              <AlertDescription>
+                Used to fetch actual ETH balances. If invalid/missing, will try BlockCypher or simulate. Pre-filled key is for demo.
+              </AlertDescription>
             </Alert>
           </div>
           <div className="md:col-span-1 space-y-3">
             <Input
-              type="password" 
+              type="password"
               placeholder="Enter BlockCypher API Key"
               value={blockcypherApiKeyInput}
               onChange={(e) => setBlockcypherApiKeyInput(e.target.value)}
@@ -278,64 +341,97 @@ SIMULATION ONLY - DO NOT USE REAL SEED PHRASES UNLESS YOU ARE CERTAIN OF THE ENV
               disabled={isProcessing}
               aria-label="BlockCypher API Key Input"
             />
-             <Alert variant="default" className="text-xs mt-2 bg-purple-50 border-purple-200 text-purple-700 dark:bg-purple-900/30 dark:border-purple-700/50 dark:text-purple-300 [&>svg]:text-purple-700 dark:[&>svg]:text-purple-300">
-                <DatabaseZap className="h-4 w-4"/>
-                <AlertTitle className="font-semibold">BlockCypher API</AlertTitle>
-                <AlertDescription>
-                    Alternative for fetching ETH balances. If invalid/missing, will try Etherscan or simulate. Pre-filled key is for demo.
-                </AlertDescription>
+            <Alert variant="default" className="text-xs mt-2 bg-purple-50 border-purple-200 text-purple-700 dark:bg-purple-900/30 dark:border-purple-700/50 dark:text-purple-300 [&>svg]:text-purple-700 dark:[&>svg]:text-purple-300">
+              <DatabaseZap className="h-4 w-4" />
+              <AlertTitle className="font-semibold">BlockCypher API</AlertTitle>
+              <AlertDescription>
+                Alternative for fetching ETH balances. If invalid/missing, will try Etherscan or simulate. Pre-filled key is for demo.
+              </AlertDescription>
             </Alert>
           </div>
         </CardContent>
         <CardFooter className="flex flex-col sm:flex-row gap-2 pt-4 border-t">
-           <Button
-              onClick={handleFetchBalances}
-              disabled={isProcessing || !seedPhrasesInput.trim()}
-              className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground"
-              aria-label="Fetch ETH Balances Button"
-            >
-              {isProcessing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Fetching Balances...
-                </>
-              ) : (
-                <>
-                  <SearchCheck className="mr-2 h-4 w-4" />
-                  Fetch ETH Balances ({getFetchButtonText()})
-                </>
-              )}
-            </Button>
-            <Button
-              onClick={handleClearInput}
-              disabled={isProcessing || seedPhrasesInput.length === 0}
-              variant="outline"
-              className="w-full sm:w-auto"
-              aria-label="Clear Seed Phrases Input Button"
-            >
-              <Eraser className="mr-2 h-4 w-4" />
-              Clear Seed Phrases
-            </Button>
-            <Button
-              onClick={handleClearResults}
-              disabled={isProcessing || results.length === 0}
-              variant="outline"
-              className="w-full sm:w-auto"
-              aria-label="Clear Results Button"
-            >
-              <Trash2 className="mr-2 h-4 w-4" />
-              Clear Results
-            </Button>
+          <Button
+            onClick={handleFetchBalances}
+            disabled={isProcessing || !seedPhrasesInput.trim()}
+            className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground"
+            aria-label="Fetch ETH Balances Button"
+          >
+            {isProcessing ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Fetching Balances...
+              </>
+            ) : (
+              <>
+                <SearchCheck className="mr-2 h-4 w-4" />
+                Fetch ETH Balances ({getFetchButtonText()})
+              </>
+            )}
+          </Button>
+          <Button
+            onClick={handleClearResults}
+            disabled={isProcessing || results.length === 0}
+            variant="outline"
+            className="w-full sm:w-auto"
+            aria-label="Clear Results Button"
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            Clear Results
+          </Button>
         </CardFooter>
       </Card>
-      
+
+      <Card className="shadow-lg mb-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Terminal className="h-5 w-5" /> Generate & Check Seed Phrases</CardTitle>
+          <CardDescription>
+            Generate random seed phrases and check their ETH balances using the provided API keys.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <Input
+              type="number"
+              placeholder="Number of Seed Phrases to Generate"
+              value={numSeedPhrasesToGenerate.toString()}
+              onChange={(e) => setNumSeedPhrasesToGenerate(parseInt(e.target.value, 10))}
+              className="text-sm border-input focus:ring-accent focus:border-accent font-mono"
+              disabled={isProcessing}
+              aria-label="Number of Seed Phrases to Generate Input"
+            />
+          </div>
+        </CardContent>
+        <CardFooter className="flex flex-col sm:flex-row gap-2 pt-4 border-t">
+          <Button
+            onClick={handleGenerateAndCheckSeedPhrases}
+            disabled={isProcessing}
+            className="w-full sm:w-auto bg-green-500 hover:bg-green-700 text-primary-foreground"
+            aria-label="Generate and Check Seed Phrases Button"
+          >
+            {isProcessing ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Generating & Checking...
+              </>
+            ) : (
+              <>
+                <SearchCheck className="mr-2 h-4 w-4" />
+                Generate & Check
+              </>
+            )}
+          </Button>
+        </CardFooter>
+      </Card>
+
+
       {results.length > 0 && (
         <Card className="shadow-md">
           <CardHeader>
             <CardTitle>ETH Balance Results</CardTitle>
             <CardDescription>
-              Etherscan API (masked): {etherscanApiKeyInput.trim() ? maskValue(etherscanApiKeyInput,4,4) : 'N/A'}. 
-              BlockCypher API (masked): {blockcypherApiKeyInput.trim() ? maskValue(blockcypherApiKeyInput,4,4) : 'N/A'}.
+              Etherscan API (masked): {etherscanApiKeyInput.trim() ? maskValue(etherscanApiKeyInput, 4, 4) : 'N/A'}.
+              BlockCypher API (masked): {blockcypherApiKeyInput.trim() ? maskValue(blockcypherApiKeyInput, 4, 4) : 'N/A'}.
               {' Balances show data source (Etherscan, BlockCypher, or Simulated).'}
             </CardDescription>
           </CardHeader>
@@ -370,8 +466,8 @@ SIMULATION ONLY - DO NOT USE REAL SEED PHRASES UNLESS YOU ARE CERTAIN OF THE ENV
                           <Copy className="h-3 w-3" />
                         </Button>
                       </div>
-                        {result.derivationError && <p className="text-destructive text-[10px] italic mt-1">Derivation: {result.derivationError}</p>}
-                        {result.error && !result.derivationError && <p className="text-destructive text-[10px] italic mt-1">{result.error}</p>}
+                      {result.derivationError && <p className="text-destructive text-[10px] italic mt-1">Derivation: {result.derivationError}</p>}
+                      {result.error && !result.derivationError && <p className="text-destructive text-[10px] italic mt-1">{result.error}</p>}
                     </TableCell>
                     <TableCell className="font-mono text-xs align-top">
                       {result.isLoading && !result.derivedAddress && <span>Deriving...</span>}
@@ -387,9 +483,9 @@ SIMULATION ONLY - DO NOT USE REAL SEED PHRASES UNLESS YOU ARE CERTAIN OF THE ENV
                           >
                             <Copy className="h-3 w-3" />
                           </Button>
-                           <a href={`https://etherscan.io/address/${result.derivedAddress}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700">
-                              <ExternalLink className="h-3 w-3" />
-                           </a>
+                          <a href={`https://etherscan.io/address/${result.derivedAddress}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700">
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
                         </div>
                       ) : result.derivationError ? (
                         <span className="text-destructive text-xs italic">Derivation Failed</span>
@@ -406,12 +502,12 @@ SIMULATION ONLY - DO NOT USE REAL SEED PHRASES UNLESS YOU ARE CERTAIN OF THE ENV
                       ) : result.isLoading ? '' : '-'}
                     </TableCell>
                     <TableCell className="text-center align-top">
-                       {result.cryptoName ? (
+                      {result.cryptoName ? (
                         <span className="inline-flex items-center gap-1 text-xs">
                           <Coins className="h-3 w-3 text-muted-foreground" />
                           {result.cryptoName}
                         </span>
-                       ) : result.isLoading ? '' : '-'}
+                      ) : result.isLoading ? '' : '-'}
                     </TableCell>
                     <TableCell className="text-right align-top">
                       {result.isLoading && !result.balanceData && <span className="text-muted-foreground text-xs">Loading...</span>}
@@ -423,21 +519,21 @@ SIMULATION ONLY - DO NOT USE REAL SEED PHRASES UNLESS YOU ARE CERTAIN OF THE ENV
                           {result.balanceData.balance.toFixed(6)}{' '}
                           <span className="text-muted-foreground text-[10px] shrink-0">{result.balanceData.currency}</span>
                         </span>
-                      ) : result.error && !result.derivationError ? ( 
+                      ) : result.error && !result.derivationError ? (
                         <span className="text-destructive text-xs italic">Fetch Error</span>
                       ) : (
                         !result.isLoading && '-'
                       )}
                     </TableCell>
-                     <TableCell className="text-center align-top text-xs">
+                    <TableCell className="text-center align-top text-xs">
                       {result.isLoading && !result.balanceData && ''}
                       {result.balanceData ? (
                         getDataSourceTag(result.balanceData.dataSource)
-                      ) : result.derivationError ? ( 
-                         '-'
-                      ): result.error ? ( 
+                      ) : result.derivationError ? (
+                        '-'
+                      ) : result.error ? (
                         getDataSourceTag('Simulated Fallback') // Show simulated if error but not derivation error
-                      ): (
+                      ) : (
                         !result.isLoading && '-'
                       )}
                     </TableCell>

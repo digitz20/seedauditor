@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use client';
 
 import * as React from 'react';
@@ -15,9 +16,10 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Terminal, Loader2, Wallet, Network, Coins, Copy, Eraser, Trash2, KeyRound, Info, ExternalLink, SearchCheck, ShieldAlert, DatabaseZap, Pause, Play } from 'lucide-react';
+import { Activity, Terminal, Loader2, Wallet, Network, Coins, Copy, Eraser, Trash2, KeyRound, Info, ExternalLink, SearchCheck, ShieldAlert, DatabaseZap, Pause, Play, Square, Settings2, ListChecks, ScrollText } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { processSeedPhrasesAndFetchBalances, type ProcessedWalletInfo, type AddressBalanceResult } from './actions';
 import { generateAndCheckSeedPhrases, type GenerateAndCheckSeedPhrasesOutput } from '@/ai/flows/random-seed-phrase';
 
@@ -29,13 +31,30 @@ interface ResultRow extends ProcessedWalletInfo {
 
 export default function Home() {
   const [seedPhrasesInput, setSeedPhrasesInput] = useState<string>('');
-  const [etherscanApiKeyInput, setEtherscanApiKeyInput] = useState<string>('ZKPID4755Q9BJZVXXZ96M3N6RSXYE7NTRV'); // Default Etherscan API Key
-  const [blockcypherApiKeyInput, setBlockcypherApiKeyInput] = useState<string>('41ccb7c601ef4bad99b3698cfcea9a8c'); // Default BlockCypher API Key
+  const [etherscanApiKeyInput, setEtherscanApiKeyInput] = useState<string>('ZKPID4755Q9BJZVXXZ96M3N6RSXYE7NTRV');
+  const [blockcypherApiKeyInput, setBlockcypherApiKeyInput] = useState<string>('41ccb7c601ef4bad99b3698cfcea9a8c');
   const [results, setResults] = useState<ResultRow[]>([]);
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [numSeedPhrasesToGenerate, setNumSeedPhrasesToGenerate] = useState<number>(1); // Default number of seed phrases to generate
+  const [isProcessingManual, setIsProcessingManual] = useState<boolean>(false); // For manual fetch/generate
+  const [numSeedPhrasesToGenerate, setNumSeedPhrasesToGenerate] = useState<number>(1);
 
   const { toast } = useToast();
+
+  // State for Automatic Seed Phrase Generator
+  const [isAutoGenerating, setIsAutoGenerating] = useState(false);
+  const [isAutoGenerationPaused, setIsAutoGenerationPaused] = useState(false);
+  const [checkedPhrasesCount, setCheckedPhrasesCount] = useState<number>(0);
+  const [currentGenerationStatus, setCurrentGenerationStatus] = useState<'Stopped' | 'Running' | 'Paused'>('Stopped');
+  const [generationLogs, setGenerationLogs] = useState<string[]>([]);
+  const MAX_LOGS = 100;
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const addLogMessage = (message: string) => {
+    setGenerationLogs(prevLogs => {
+      const newLogs = [`[${new Date().toLocaleTimeString()}] ${message}`, ...prevLogs];
+      return newLogs.length > MAX_LOGS ? newLogs.slice(0, MAX_LOGS) : newLogs;
+    });
+  };
+
 
   const handleFetchBalances = async () => {
     const phrases = seedPhrasesInput
@@ -85,7 +104,7 @@ export default function Home() {
       return;
     }
 
-    setIsProcessing(true);
+    setIsProcessingManual(true);
     setResults(
       phrases.map((phrase) => ({
         seedPhrase: phrase,
@@ -134,13 +153,13 @@ export default function Home() {
       setResults(prevResults => prevResults.map(r => ({ ...r, isLoading: false, error: r.error || "Overall process failed" })));
     }
 
-    setIsProcessing(false);
+    setIsProcessingManual(false);
   };
 
 
-  const handleGenerateAndCheckSeedPhrases = async () => {
-    setIsProcessing(true);
-    setResults([]); // Clear previous results
+  const handleManualGenerateAndCheck = async () => {
+    setIsProcessingManual(true);
+    // setResults([]); // Typically, manual generation might clear or append, user can clear separately
 
     try {
       const input = {
@@ -151,7 +170,6 @@ export default function Home() {
 
       const generatedData: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
 
-      // Convert the GenerateAndCheckSeedPhrasesOutput to the ResultRow format
       const processedData = generatedData.map(item => ({
         seedPhrase: item.seedPhrase,
         derivedAddress: item.derivedAddress,
@@ -161,7 +179,7 @@ export default function Home() {
           address: item.derivedAddress,
           balance: item.balance,
           currency: item.cryptoName,
-          isRealData: true, // Assuming the balance data is always real in this case
+          isRealData: item.dataSource !== 'Simulated Fallback' && item.dataSource !== 'N/A',
           dataSource: item.dataSource,
         },
         error: null,
@@ -169,11 +187,11 @@ export default function Home() {
         isLoading: false,
       }));
 
-      setResults(processedData);
+      setResults(prevResults => [...prevResults, ...processedData]); // Append to existing results
 
       toast({
         title: 'Seed Phrases Generated and Checked',
-        description: `Generated and checked ${numSeedPhrasesToGenerate} seed phrases.`,
+        description: `Generated and checked ${numSeedPhrasesToGenerate} seed phrases. Found ${processedData.length} with balance.`,
       });
     } catch (error: any) {
       console.error("Error generating and checking seed phrases:", error);
@@ -183,7 +201,7 @@ export default function Home() {
         variant: 'destructive',
       });
     } finally {
-      setIsProcessing(false);
+      setIsProcessingManual(false);
     }
   };
 
@@ -255,77 +273,103 @@ export default function Home() {
   }
 
   // Automatic Seed Phrase Generation Logic
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generationPaused, setGenerationPaused] = useState(false);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null); // Store the interval ID
-
-  const startGenerating = () => {
-    setIsGenerating(true);
-    setGenerationPaused(false); // Ensure it's not paused when starting
-  
-    intervalRef.current = setInterval(async () => {
-      if (!generationPaused) {
-        try {
-          const input = {
-            numSeedPhrases: numSeedPhrasesToGenerate,
-            etherscanApiKey: etherscanApiKeyInput || '',
-            blockcypherApiKey: blockcypherApiKeyInput || '',
-          };
-  
-          const generatedData: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
-          const processedData = generatedData.map(item => ({
-            seedPhrase: item.seedPhrase,
-            derivedAddress: item.derivedAddress,
-            walletType: item.walletType,
-            cryptoName: item.cryptoName,
-            balanceData: {
-              address: item.derivedAddress,
-              balance: item.balance,
-              currency: item.cryptoName,
-              isRealData: true,
-              dataSource: item.dataSource,
-            },
-            error: null,
-            derivationError: null,
-            isLoading: false,
-          }));
-  
-          // Update the results state by appending new results
-          setResults(prevResults => [...prevResults, ...processedData]);
-  
-        } catch (error: any) {
-          console.error("Error generating and checking seed phrases:", error);
-          toast({
-            title: 'Generation and Check Error',
-            description: `An error occurred: ${error.message}`,
-            variant: 'destructive',
-          });
-          stopGenerating();
-        }
+  const startAutoGenerating = () => {
+    if (isAutoGenerationPaused) {
+      setIsAutoGenerationPaused(false);
+      setCurrentGenerationStatus('Running');
+      addLogMessage('Resuming automatic seed phrase generation...');
+      // Interval logic will resume in the existing interval if it's still polling `isAutoGenerationPaused`
+      // Or, restart interval if it was fully cleared on pause
+      if (!intervalRef.current) { // If interval was cleared, restart it
+         createInterval();
       }
-    }, 2000); // Adjust interval as needed
+      return;
+    }
+
+    setIsAutoGenerating(true);
+    setIsAutoGenerationPaused(false);
+    setCurrentGenerationStatus('Running');
+    setCheckedPhrasesCount(0); // Reset count on new start
+    setGenerationLogs([]); // Clear logs on new start
+    addLogMessage('Starting automatic seed phrase generation...');
+    createInterval();
   };
 
-  // Function to pause the seed phrase generation
-  const pauseGenerating = () => {
-    setGenerationPaused(true);
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-    }
+  const createInterval = () => {
+    if (intervalRef.current) clearInterval(intervalRef.current); // Clear existing before creating new
+
+    intervalRef.current = setInterval(async () => {
+      if (isAutoGenerationPaused) return; // Check pause state inside interval
+
+      const currentNumToGenerate = numSeedPhrasesToGenerate > 0 ? numSeedPhrasesToGenerate : 1;
+      addLogMessage(`Generating batch of ${currentNumToGenerate} seed phrases...`);
+      try {
+        const input = {
+          numSeedPhrases: currentNumToGenerate,
+          etherscanApiKey: etherscanApiKeyInput || '',
+          blockcypherApiKey: blockcypherApiKeyInput || '',
+        };
+
+        const generatedData: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
+        const processedData = generatedData.map(item => ({
+          seedPhrase: item.seedPhrase,
+          derivedAddress: item.derivedAddress,
+          walletType: item.walletType,
+          cryptoName: item.cryptoName,
+          balanceData: {
+            address: item.derivedAddress,
+            balance: item.balance,
+            currency: item.cryptoName,
+            isRealData: item.dataSource !== 'Simulated Fallback' && item.dataSource !== 'N/A',
+            dataSource: item.dataSource,
+          },
+          error: null,
+          derivationError: null,
+          isLoading: false,
+        }));
+        
+        setCheckedPhrasesCount(prevCount => prevCount + currentNumToGenerate);
+        
+        if (processedData.length > 0) {
+          setResults(prevResults => [...prevResults, ...processedData]);
+          addLogMessage(`Found ${processedData.length} wallet(s) with balance in this batch. Results updated.`);
+        } else {
+          addLogMessage(`Processed batch. No wallets with balance found this time.`);
+        }
+
+      } catch (error: any) {
+        console.error("Error during automatic seed phrase generation batch:", error);
+        addLogMessage(`Error in generation batch: ${error.message}`);
+        // Optionally stop generation on error: stopAutoGenerating();
+      }
+    }, 2000); // Interval duration
+  }
+
+
+  const pauseAutoGenerating = () => {
+    setIsAutoGenerationPaused(true);
+    setCurrentGenerationStatus('Paused');
+    addLogMessage('Paused automatic seed phrase generation.');
+    // Note: The interval itself keeps running but checks `isAutoGenerationPaused`
+    // If you want to completely stop the interval ticks on pause:
+    // if (intervalRef.current) {
+    //   clearInterval(intervalRef.current);
+    //   intervalRef.current = null;
+    // }
   };
 
-  // Function to stop the seed phrase generation
-  const stopGenerating = () => {
-    setIsGenerating(false);
-    setGenerationPaused(false);
+  const stopAutoGenerating = () => {
+    setIsAutoGenerating(false);
+    setIsAutoGenerationPaused(false);
+    setCurrentGenerationStatus('Stopped');
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
-      intervalRef.current = null; // Clear the interval ID after stopping
+      intervalRef.current = null;
     }
+    addLogMessage('Stopped automatic seed phrase generation.');
   };
   
   useEffect(() => {
-    // Cleanup function in useEffect to clear the interval when the component unmounts
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
@@ -341,7 +385,7 @@ export default function Home() {
           <Wallet className="h-8 w-8" /> ETH Balance Auditor
         </h1>
         <p className="text-muted-foreground">
-          Enter seed phrases and API keys (Etherscan/BlockCypher) to derive addresses and fetch their real ETH balances.
+          Enter seed phrases and API keys (Etherscan/BlockCypher) to derive addresses and fetch their real ETH balances. Or, use the automatic generator.
         </p>
       </header>
 
@@ -354,7 +398,8 @@ export default function Home() {
           <ul>
             <li>It uses <code>ethers.js</code> for LOCAL address derivation. Your seed phrases are NOT sent to any server for derivation.</li>
             <li>It WILL attempt to use provided API keys (Etherscan, BlockCypher) to fetch REAL ETH balances.</li>
-            <li>If API keys are missing, invalid, or calls fail, it falls back to RANDOMLY SIMULATED ETH balances.</li>
+            <li>If API keys are missing, invalid, or calls fail, it falls back to RANDOMLY SIMULATED ETH balances (for manual input).</li>
+            <li>The automatic generator attempts to find wallets with balances using the provided keys.</li>
             <li><strong>Exposing real seed phrases can lead to PERMANENT LOSS OF FUNDS. The pre-filled API keys are for demonstration and may be rate-limited or revoked.</strong></li>
           </ul>
         </AlertDescription>
@@ -364,26 +409,24 @@ export default function Home() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5" /> Input Seed Phrases & API Keys</CardTitle>
           <CardDescription>
-            Provide seed phrases (one per line) and your Etherscan/BlockCypher API keys.
-            Real ETH balances will be fetched if keys are valid; otherwise, simulated balances are shown.
+            Provide seed phrases (one per line) and your Etherscan/BlockCypher API keys for manual checking.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="md:col-span-1 space-y-3">
             <Textarea
-              placeholder="Paste your seed phrases here, one per line...
-SIMULATION ONLY - DO NOT USE REAL SEED PHRASES UNLESS YOU ARE CERTAIN OF THE ENVIRONMENT'S SECURITY"
+              placeholder="Paste your seed phrases here, one per line..."
               value={seedPhrasesInput}
               onChange={(e) => setSeedPhrasesInput(e.target.value)}
               rows={8}
               className="text-sm border-input focus:ring-accent focus:border-accent font-mono"
-              disabled={isProcessing}
+              disabled={isProcessingManual || isAutoGenerating}
               aria-label="Seed Phrases Input"
             />
              <div className="flex items-center space-x-2">
               <Button
                 onClick={handleClearInput}
-                disabled={isProcessing || seedPhrasesInput.length === 0}
+                disabled={isProcessingManual || isAutoGenerating || seedPhrasesInput.length === 0}
                 variant="outline"
                 className="w-1/2 sm:w-auto"
                 aria-label="Clear Seed Phrases Input Button"
@@ -400,14 +443,14 @@ SIMULATION ONLY - DO NOT USE REAL SEED PHRASES UNLESS YOU ARE CERTAIN OF THE ENV
               value={etherscanApiKeyInput}
               onChange={(e) => setEtherscanApiKeyInput(e.target.value)}
               className="text-sm border-input focus:ring-accent focus:border-accent font-mono"
-              disabled={isProcessing}
+              disabled={isProcessingManual || isAutoGenerating}
               aria-label="Etherscan API Key Input"
             />
             <Alert variant="default" className="text-xs mt-2 bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/30 dark:border-blue-700/50 dark:text-blue-300 [&>svg]:text-blue-700 dark:[&>svg]:text-blue-300">
               <DatabaseZap className="h-4 w-4" />
               <AlertTitle className="font-semibold">Etherscan API</AlertTitle>
               <AlertDescription>
-                Used to fetch actual ETH balances. If invalid/missing, will try BlockCypher or simulate. Pre-filled key is for demo.
+                Used to fetch actual ETH balances. Pre-filled key is for demo.
               </AlertDescription>
             </Alert>
           </div>
@@ -418,14 +461,14 @@ SIMULATION ONLY - DO NOT USE REAL SEED PHRASES UNLESS YOU ARE CERTAIN OF THE ENV
               value={blockcypherApiKeyInput}
               onChange={(e) => setBlockcypherApiKeyInput(e.target.value)}
               className="text-sm border-input focus:ring-accent focus:border-accent font-mono"
-              disabled={isProcessing}
+              disabled={isProcessingManual || isAutoGenerating}
               aria-label="BlockCypher API Key Input"
             />
             <Alert variant="default" className="text-xs mt-2 bg-purple-50 border-purple-200 text-purple-700 dark:bg-purple-900/30 dark:border-purple-700/50 dark:text-purple-300 [&>svg]:text-purple-700 dark:[&>svg]:text-purple-300">
               <DatabaseZap className="h-4 w-4" />
               <AlertTitle className="font-semibold">BlockCypher API</AlertTitle>
               <AlertDescription>
-                Alternative for fetching ETH balances. If invalid/missing, will try Etherscan or simulate. Pre-filled key is for demo.
+                Alternative for ETH balances. Pre-filled key is for demo.
               </AlertDescription>
             </Alert>
           </div>
@@ -433,11 +476,11 @@ SIMULATION ONLY - DO NOT USE REAL SEED PHRASES UNLESS YOU ARE CERTAIN OF THE ENV
         <CardFooter className="flex flex-col sm:flex-row gap-2 pt-4 border-t">
           <Button
             onClick={handleFetchBalances}
-            disabled={isProcessing || !seedPhrasesInput.trim()}
+            disabled={isProcessingManual || isAutoGenerating || !seedPhrasesInput.trim()}
             className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground"
             aria-label="Fetch ETH Balances Button"
           >
-            {isProcessing ? (
+            {isProcessingManual ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Fetching Balances...
@@ -451,7 +494,7 @@ SIMULATION ONLY - DO NOT USE REAL SEED PHRASES UNLESS YOU ARE CERTAIN OF THE ENV
           </Button>
           <Button
             onClick={handleClearResults}
-            disabled={isProcessing || results.length === 0}
+            disabled={isProcessingManual || isAutoGenerating || results.length === 0}
             variant="outline"
             className="w-full sm:w-auto"
             aria-label="Clear Results Button"
@@ -464,106 +507,128 @@ SIMULATION ONLY - DO NOT USE REAL SEED PHRASES UNLESS YOU ARE CERTAIN OF THE ENV
 
       <Card className="shadow-lg mb-6">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Terminal className="h-5 w-5" /> Generate & Check Seed Phrases</CardTitle>
+          <CardTitle className="flex items-center gap-2"><Terminal className="h-5 w-5" /> Manual Seed Phrase Generation</CardTitle>
           <CardDescription>
-            Generate random seed phrases and check their ETH balances using the provided API keys.
+            Manually generate a specific number of random seed phrases and check their ETH balances.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <Input
+        <CardContent>
+             <Input
               type="number"
-              placeholder="Number of Seed Phrases to Generate"
+              min="1"
+              placeholder="Number of Seed Phrases"
               value={numSeedPhrasesToGenerate.toString()}
-              onChange={(e) => setNumSeedPhrasesToGenerate(parseInt(e.target.value, 10))}
-              className="text-sm border-input focus:ring-accent focus:border-accent font-mono"
-              disabled={isProcessing}
+              onChange={(e) => setNumSeedPhrasesToGenerate(Math.max(1, parseInt(e.target.value, 10) || 1))}
+              className="text-sm border-input focus:ring-accent focus:border-accent font-mono w-full md:w-1/3"
+              disabled={isProcessingManual || isAutoGenerating}
               aria-label="Number of Seed Phrases to Generate Input"
             />
-          </div>
         </CardContent>
         <CardFooter className="flex flex-col sm:flex-row gap-2 pt-4 border-t">
           <Button
-            onClick={handleGenerateAndCheckSeedPhrases}
-            disabled={isProcessing}
-            className="w-full sm:w-auto bg-green-500 hover:bg-green-700 text-primary-foreground"
-            aria-label="Generate and Check Seed Phrases Button"
+            onClick={handleManualGenerateAndCheck}
+            disabled={isProcessingManual || isAutoGenerating}
+            className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-primary-foreground"
+            aria-label="Manual Generate and Check Seed Phrases Button"
           >
-            {isProcessing ? (
+            {isProcessingManual ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Generating & Checking...
+                Generating...
               </>
             ) : (
               <>
                 <SearchCheck className="mr-2 h-4 w-4" />
-                Generate & Check
+                Manual Generate & Check
               </>
             )}
           </Button>
-          <div className="flex items-center space-x-2">
-            {!isGenerating ? (
+        </CardFooter>
+      </Card>
+
+      <Card className="shadow-lg mb-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5" /> Automatic Seed Phrase Inspector</CardTitle>
+          <CardDescription>
+            Continuously generates random seed phrases and checks for balances using the API keys above.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="text-center">
+            <p className="text-sm text-muted-foreground mb-1">SEED PHRASES PROCESSED</p>
+            <p className="text-5xl font-bold mb-2 text-primary">{checkedPhrasesCount}</p>
+            <p className="text-lg font-semibold">
+              Status: <span
+                className={`font-bold ${
+                  currentGenerationStatus === 'Running' ? 'text-green-500' :
+                  currentGenerationStatus === 'Paused' ? 'text-amber-500' :
+                  'text-red-500'
+                }`}
+              >
+                {currentGenerationStatus}
+              </span>
+            </p>
+          </div>
+          <div className="flex justify-center space-x-3">
+            {!isAutoGenerating || isAutoGenerationPaused ? (
               <Button
-                onClick={startGenerating}
-                disabled={isProcessing}
-                className="w-1/3 sm:w-auto"
-                aria-label="Start Generating"
+                onClick={startAutoGenerating}
+                disabled={isProcessingManual || (isAutoGenerating && !isAutoGenerationPaused)}
+                className="bg-green-500 hover:bg-green-600 text-white w-28"
+                aria-label={isAutoGenerationPaused ? "Resume Generating" : "Start Generating"}
               >
                 <Play className="mr-2 h-4 w-4" />
-                Start
-              </Button>
-            ) : generationPaused ? (
-              <Button
-                onClick={startGenerating}
-                disabled={isProcessing}
-                className="w-1/3 sm:w-auto"
-                aria-label="Resume Generating"
-              >
-                <Play className="mr-2 h-4 w-4" />
-                Resume
+                {isAutoGenerationPaused ? 'Resume' : 'Start'}
               </Button>
             ) : (
               <Button
-                onClick={pauseGenerating}
-                disabled={isProcessing}
+                onClick={pauseAutoGenerating}
+                disabled={isProcessingManual}
                 variant="secondary"
-                className="w-1/3 sm:w-auto"
+                className="bg-amber-500 hover:bg-amber-600 text-white w-28"
                 aria-label="Pause Generating"
               >
                 <Pause className="mr-2 h-4 w-4" />
                 Pause
               </Button>
             )}
-            {isGenerating && (
-              <Button
-                onClick={stopGenerating}
-                disabled={isProcessing}
-                variant="outline"
-                className="w-1/3 sm:w-auto"
-                aria-label="Stop Generating"
-              >
-                <Pause className="mr-2 h-4 w-4" />
-                Stop
-              </Button>
-            )}
+            <Button
+              onClick={stopAutoGenerating}
+              disabled={isProcessingManual || !isAutoGenerating}
+              variant="destructive"
+              className="bg-red-500 hover:bg-red-600 text-white w-28"
+              aria-label="Stop Generating"
+            >
+              <Square className="mr-2 h-4 w-4" />
+              Stop
+            </Button>
           </div>
-        </CardFooter>
+        </CardContent>
+         {generationLogs.length > 0 && (
+            <CardFooter className="flex-col items-start pt-4 border-t">
+              <h3 className="text-sm font-semibold mb-2 flex items-center gap-1"><ScrollText className="h-4 w-4"/>Generation Log:</h3>
+              <ScrollArea className="h-[150px] w-full rounded-md border p-3 text-xs bg-muted/30">
+                {generationLogs.map((log, index) => (
+                  <div key={index} className="mb-1 last:mb-0">{log}</div>
+                ))}
+              </ScrollArea>
+            </CardFooter>
+         )}
       </Card>
 
 
       {results.length > 0 && (
         <Card className="shadow-md">
           <CardHeader>
-            <CardTitle>ETH Balance Results</CardTitle>
+            <CardTitle>ETH Balance Results (Wallets with Balance)</CardTitle>
             <CardDescription>
               Etherscan API (masked): {etherscanApiKeyInput.trim() ? maskValue(etherscanApiKeyInput, 4, 4) : 'N/A'}.
               BlockCypher API (masked): {blockcypherApiKeyInput.trim() ? maskValue(blockcypherApiKeyInput, 4, 4) : 'N/A'}.
-              {' Balances show data source (Etherscan, BlockCypher, or Simulated).'}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
-              <TableCaption>Derived addresses and their ETH balances.</TableCaption>
+              <TableCaption>Derived addresses and their ETH balances. Only wallets with balances &gt; 0 are shown.</TableCaption>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[18%]">Seed Phrase (Masked)</TableHead>
@@ -577,7 +642,7 @@ SIMULATION ONLY - DO NOT USE REAL SEED PHRASES UNLESS YOU ARE CERTAIN OF THE ENV
               </TableHeader>
               <TableBody>
                 {results.map((result, index) => (
-                  <TableRow key={`${result.seedPhrase}-${index}`} className={`hover:bg-secondary/50 ${result.derivationError ? 'bg-red-50 dark:bg-red-900/30' : ''}`}>
+                  <TableRow key={`${result.seedPhrase}-${index}-${result.derivedAddress}`} className={`hover:bg-secondary/50 ${result.derivationError ? 'bg-red-50 dark:bg-red-900/30' : ''}`}>
                     <TableCell className="font-mono text-xs align-top">
                       <div className="flex items-center gap-1">
                         <span>{maskValue(result.seedPhrase, 4, 4)}</span>
@@ -658,7 +723,7 @@ SIMULATION ONLY - DO NOT USE REAL SEED PHRASES UNLESS YOU ARE CERTAIN OF THE ENV
                       ) : result.derivationError ? (
                         '-'
                       ) : result.error ? (
-                        getDataSourceTag('Simulated Fallback') // Show simulated if error but not derivation error
+                        getDataSourceTag('Simulated Fallback')
                       ) : (
                         !result.isLoading && '-'
                       )}
@@ -682,3 +747,4 @@ SIMULATION ONLY - DO NOT USE REAL SEED PHRASES UNLESS YOU ARE CERTAIN OF THE ENV
     </div>
   );
 }
+

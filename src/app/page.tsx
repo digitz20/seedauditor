@@ -68,7 +68,8 @@ export default function Home() {
     for (let i = 0; i < phrases.length; i++) {
       const phrase = phrases[i];
       try {
-        await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 200));
+        // Simulate a small delay before each call for better UX
+        await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 200)); 
         const auditResult = await analyzeSeedPhraseAndSimulateBalance(phrase);
         setResults((prevResults) =>
           prevResults.map((r, index) =>
@@ -121,20 +122,21 @@ export default function Home() {
   };
 
   const getCurrencyIcon = (currencySymbol: string) => {
+    // Simple heuristic for common crypto symbols, can be expanded
     switch (currencySymbol.toUpperCase()) {
       case 'ETH': return 'Ξ';
       case 'BTC': return '₿';
-      case 'SOL': return 'S';
-      case 'MATIC': return 'M';
+      case 'SOL': return 'S'; // Solana often uses S or ◎
+      case 'MATIC': return 'M'; // Polygon/Matic
       case 'USDT': return '₮';
-      case 'USDC': return 'C';
-      case 'DAI': return 'D';
+      case 'USDC': return 'C'; // Circle's USDC
+      case 'DAI': return 'D'; // Dai
       default: return currencySymbol.charAt(0).toUpperCase() || '?';
     }
   };
 
   const maskValue = (value: string, start = 5, end = 5) => {
-    if (!value || value.length < start + end + 3) return value;
+    if (!value || value.length < start + end + 3) return value; // Return original if too short
     return `${value.substring(0, start)}...${value.substring(value.length - end)}`;
   };
   
@@ -151,6 +153,24 @@ export default function Home() {
       toast({
         title: 'Copy Failed',
         description: 'Could not copy address to clipboard. Ensure you are on HTTPS or localhost.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleCopySeedPhrase = async (seedPhrase: string) => {
+    if (!seedPhrase) return;
+    try {
+      await navigator.clipboard.writeText(seedPhrase);
+      toast({
+        title: 'Seed Phrase Copied',
+        description: 'The seed phrase has been copied to your clipboard.',
+      });
+    } catch (err) {
+      console.error('Failed to copy seed phrase: ', err);
+      toast({
+        title: 'Copy Failed',
+        description: 'Could not copy seed phrase to clipboard. Ensure you are on HTTPS or localhost.',
         variant: 'destructive',
       });
     }
@@ -247,7 +267,19 @@ export default function Home() {
                 {results.map((result, index) => (
                   <TableRow key={index} className="hover:bg-secondary/50">
                     <TableCell className="font-mono text-xs align-top">
-                      {maskValue(result.seedPhrase, 4, 4)}
+                      <div className="flex items-center gap-2">
+                        <span>{maskValue(result.seedPhrase, 4, 4)}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
+                          onClick={() => handleCopySeedPhrase(result.seedPhrase)}
+                          aria-label="Copy seed phrase"
+                          disabled={!result.seedPhrase}
+                        >
+                          <Copy className="h-3 w-3" />
+                        </Button>
+                      </div>
                     </TableCell>
                     <TableCell className="font-mono text-xs align-top">
                       {result.auditData ? (

@@ -35,7 +35,10 @@ export async function analyzeSeedPhraseAndSimulateBalance(seedPhrase: string): P
     console.log(`Simulated derivation of address: ${derivedAddress} for phrase.`);
   } catch (error: any) {
     console.warn(`Invalid seed phrase format (simulation): ${error.message}`);
-    throw new Error('Invalid seed phrase format (simulation).');
+    // For user feedback, it's better to throw an error that can be caught and displayed.
+    // However, since the user reported a console error for the network part,
+    // we'll ensure this one is also distinct.
+    throw new Error(`Invalid seed phrase: ${error.message?.split('(')[0]?.trim() || 'Could not derive address'}. (Simulation)`);
   }
 
   // Simulate network delay for balance fetching part
@@ -45,7 +48,7 @@ export async function analyzeSeedPhraseAndSimulateBalance(seedPhrase: string): P
   // Simulate potential network errors occasionally for balance fetching
   if (Math.random() < 0.03) { // 3% chance of error
     console.warn("Simulated network error during balance fetch.");
-    throw new Error('Simulated network error: Failed to fetch balance.');
+    throw new Error('Simulated network error: Failed to fetch balance. (Simulation)');
   }
 
   // Generate random balance data - for EVM, we can simulate ETH or a common ERC20

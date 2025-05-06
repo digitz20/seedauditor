@@ -7,7 +7,7 @@ import { ethers } from 'ethers';
  */
 export interface SeedPhraseAuditResult {
   derivedAddress: string;
-  walletType: string; // e.g., 'EVM'
+  walletType: string; // e.g., 'Ethereum Virtual Machine'
   cryptoName: string; // e.g., 'ETH' - The primary crypto for this wallet type
   simulatedBalance: number;
   simulatedCurrency: string; // The currency of the simulated balance (e.g., ETH, USDC)
@@ -15,7 +15,7 @@ export interface SeedPhraseAuditResult {
 
 /**
  * Analyzes a seed phrase to derive an address and simulates its balance using ethers.js.
- * Wallet type and crypto name are set to EVM/ETH for this simulation.
+ * Wallet type and crypto name are set for EVM/ETH simulation.
  * IMPORTANT: This is a simulation. It uses ethers.js for address derivation
  * but generates random balance data.
  * NEVER use real seed phrases in a production frontend application like this
@@ -29,7 +29,7 @@ export async function analyzeSeedPhraseAndSimulateBalance(seedPhrase: string): P
   console.log(`Analyzing seed phrase starting with: ${seedPhrase.substring(0, 5)}...`);
 
   let derivedAddress: string;
-  const walletType = 'EVM'; // ethers.js primarily deals with EVM-compatible wallets
+  const walletType = 'Ethereum Virtual Machine'; // Full name for EVM
   const cryptoName = 'ETH'; // Main currency for EVM
 
   try {
@@ -39,7 +39,9 @@ export async function analyzeSeedPhraseAndSimulateBalance(seedPhrase: string): P
     console.log(`Simulated derivation of address: ${derivedAddress} for phrase.`);
   } catch (error: any) {
     console.warn(`Invalid seed phrase or derivation error (simulation): ${error.message}`);
-    throw new Error(`Invalid seed phrase: ${error.message?.split('(')[0]?.trim() || 'Could not derive address'}. (Simulation)`);
+    // Attempt to provide a more user-friendly error message from ethers.js if possible
+    const errorMessage = error.message?.split('(')[0]?.trim() || 'Could not derive address';
+    throw new Error(`Invalid seed phrase: ${errorMessage}. (Simulation)`);
   }
 
   // Simulate network delay for balance fetching part

@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import {
@@ -14,7 +14,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Terminal, Loader2, Wallet, Network, Coins } from 'lucide-react';
+import { Terminal, Loader2, Wallet, Network, Coins, Copy } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { analyzeSeedPhraseAndSimulateBalance, type SeedPhraseAuditResult } from './actions';
@@ -68,6 +68,8 @@ export default function Home() {
     for (let i = 0; i < phrases.length; i++) {
       const phrase = phrases[i];
       try {
+        // Introduce a small artificial delay between processing each phrase for better UX
+        await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 200));
         const auditResult = await analyzeSeedPhraseAndSimulateBalance(phrase);
         setResults((prevResults) =>
           prevResults.map((r, index) =>
@@ -88,9 +90,12 @@ export default function Home() {
               : r
           )
         );
+        // Toasting for individual errors can be overwhelming if many fail.
+        // Consider a summary toast or logging to console instead for multiple errors.
+        // For now, keeping individual toasts for clear feedback on each failure.
         toast({
           title: 'Simulation Error',
-          description: `Failed to process phrase: ${error.message}`,
+          description: `Failed for phrase starting with "${phrase.substring(0,10)}...": ${error.message}`,
           variant: 'destructive',
         });
       }
@@ -118,9 +123,28 @@ export default function Home() {
   };
 
   const maskValue = (value: string, start = 5, end = 5) => {
-    if (!value || value.length < start + end) return value; // Return original if too short to mask meaningfully
+    if (!value || value.length < start + end + 3) return value; // Return original if too short to mask meaningfully (added +3 for "...")
     return `${value.substring(0, start)}...${value.substring(value.length - end)}`;
   };
+  
+  const handleCopyAddress = async (address: string) => {
+    if (!address) return;
+    try {
+      await navigator.clipboard.writeText(address);
+      toast({
+        title: 'Address Copied',
+        description: 'The derived address has been copied to your clipboard.',
+      });
+    } catch (err) {
+      console.error('Failed to copy address: ', err);
+      toast({
+        title: 'Copy Failed',
+        description: 'Could not copy address to clipboard. Ensure you are on HTTPS or localhost.',
+        variant: 'destructive',
+      });
+    }
+  };
+
 
   return (
     <div className="container mx-auto p-4 md:p-8">
@@ -129,7 +153,7 @@ export default function Home() {
           <Wallet className="h-8 w-8" /> Seed Phrase Auditor
         </h1>
         <p className="text-muted-foreground">
-          Enter seed phrases to simulate address derivation and balance retrieval (EVM focused).
+          Enter seed phrases to simulate address derivation and balance retrieval.
         </p>
       </header>
 
@@ -179,9 +203,9 @@ export default function Home() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[25%]">Seed Phrase (Masked)</TableHead>
-                  <TableHead className="w-[30%]">Derived Address (Masked)</TableHead>
+                  <TableHead className="w-[35%]">Derived Address (Masked)</TableHead>
                   <TableHead className="w-[15%] text-center">Wallet Type</TableHead>
-                  <TableHead className="w-[15%] text-center">Primary Crypto</TableHead>
+                  <TableHead className="w-[10%] text-center">Primary Crypto</TableHead>
                   <TableHead className="w-[10%] text-right">Simulated Balance</TableHead>
                   <TableHead className="w-[5%] text-right">Status</TableHead>
                 </TableRow>
@@ -193,11 +217,28 @@ export default function Home() {
                       {maskValue(result.seedPhrase, 4, 4)}
                     </TableCell>
                     <TableCell className="font-mono text-xs align-top">
-                      {result.auditData ? maskValue(result.auditData.derivedAddress, 6, 4) : result.error ? '-' : 'Deriving...'}
-                    </TableCell>
-                    <TableCell className="text-center align-top">
                       {result.auditData ? (
-                        <span className="inline-flex items-center gap-1 text-xs">
+                        <div className="flex items-center gap-2">
+                          <span>{maskValue(result.auditData.derivedAddress, 6, 4)}</span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 p-0 text-muted-foreground hover:text-primary"
+                            onClick={() => handleCopyAddress(result.auditData!.derivedAddress)}
+                            aria-label="Copy derived address"
+                          >
+                            <Copy className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ) : result.error ? (
+                        '-'
+                      ) : (
+                        'Deriving...'
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center align-top text-xs">
+                      {result.auditData ? (
+                        <span className="inline-flex items-center gap-1">
                           <Network className="h-3 w-3 text-muted-foreground" />
                           {result.auditData.walletType}
                         </span>

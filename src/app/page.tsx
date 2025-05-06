@@ -17,6 +17,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Terminal, Loader2 } from "lucide-react";
 import { simulateFetchBalance, type SimulatedBalance } from "@/lib/simulator";
 import { useToast } from "@/hooks/use-toast";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"; // Ensure Card components are imported
 
 interface ResultRow {
   seedPhrase: string;
@@ -218,8 +219,3 @@ export default function Home() {
     </div>
   );
 }
-
-// Import Card components if they are not globally available
-// Assuming they are standard ShadCN components
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-

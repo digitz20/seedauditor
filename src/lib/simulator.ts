@@ -34,3 +34,4 @@ export async function simulateFetchBalance(seedPhrase: string): Promise<Simulate
 
   return { balance, currency };
 }
+

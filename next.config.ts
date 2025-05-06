@@ -1,4 +1,4 @@
-import type {NextConfig} from 'next';
+import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   /* config options here */
@@ -16,6 +16,14 @@ const nextConfig: NextConfig = {
         port: '',
         pathname: '/**',
       },
+      // Add other potential image sources if needed in the future
+      // Example: for cryptocurrency icons
+      // {
+      //   protocol: 'https',
+      //   hostname: 'cryptologos.cc',
+      //   port: '',
+      //   pathname: '/logos/**',
+      // },
     ],
   },
 };

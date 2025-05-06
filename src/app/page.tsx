@@ -14,7 +14,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Terminal, Loader2, Wallet, Network, Coins, Copy } from 'lucide-react';
+import { Terminal, Loader2, Wallet, Network, Coins, Copy, Eraser, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { analyzeSeedPhraseAndSimulateBalance, type SeedPhraseAuditResult } from './actions';
@@ -46,7 +46,7 @@ export default function Home() {
       });
       return;
     }
-    if (phrases.length > 50) { // Reduced limit for demo purposes
+    if (phrases.length > 50) {
       toast({
         title: 'Too Many Seed Phrases',
         description: 'Please enter no more than 50 seed phrases at a time for this simulation.',
@@ -68,7 +68,6 @@ export default function Home() {
     for (let i = 0; i < phrases.length; i++) {
       const phrase = phrases[i];
       try {
-        // Introduce a small artificial delay between processing each phrase for better UX
         await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 200));
         const auditResult = await analyzeSeedPhraseAndSimulateBalance(phrase);
         setResults((prevResults) =>
@@ -90,9 +89,6 @@ export default function Home() {
               : r
           )
         );
-        // Toasting for individual errors can be overwhelming if many fail.
-        // Consider a summary toast or logging to console instead for multiple errors.
-        // For now, keeping individual toasts for clear feedback on each failure.
         toast({
           title: 'Simulation Error',
           description: `Failed for phrase starting with "${phrase.substring(0,10)}...": ${error.message}`,
@@ -108,11 +104,26 @@ export default function Home() {
     });
   };
 
-  // Simple icon mapping simulation
+  const handleClearInput = () => {
+    setSeedPhrasesInput('');
+    toast({
+      title: 'Input Cleared',
+      description: 'The seed phrase input area has been cleared.',
+    });
+  };
+
+  const handleClearResults = () => {
+    setResults([]);
+    toast({
+      title: 'Results Cleared',
+      description: 'The audit results have been cleared.',
+    });
+  };
+
   const getCurrencyIcon = (currencySymbol: string) => {
     switch (currencySymbol.toUpperCase()) {
       case 'ETH': return 'Ξ';
-      case 'BTC': return '₿'; // Though we're focusing on EVM, keep for diversity
+      case 'BTC': return '₿';
       case 'SOL': return 'S';
       case 'MATIC': return 'M';
       case 'USDT': return '₮';
@@ -123,7 +134,7 @@ export default function Home() {
   };
 
   const maskValue = (value: string, start = 5, end = 5) => {
-    if (!value || value.length < start + end + 3) return value; // Return original if too short to mask meaningfully (added +3 for "...")
+    if (!value || value.length < start + end + 3) return value;
     return `${value.substring(0, start)}...${value.substring(value.length - end)}`;
   };
   
@@ -175,21 +186,43 @@ export default function Home() {
           disabled={isProcessing}
           aria-label="Seed Phrases Input"
         />
-        <Button
-          onClick={handleAudit}
-          disabled={isProcessing}
-          className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
-          aria-label="Audit Balances Button"
-        >
-          {isProcessing ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Processing...
-            </>
-          ) : (
-            'Audit Phrases (Simulate)'
-          )}
-        </Button>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <Button
+            onClick={handleAudit}
+            disabled={isProcessing}
+            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground sm:col-span-1"
+            aria-label="Audit Balances Button"
+          >
+            {isProcessing ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Processing...
+              </>
+            ) : (
+              'Audit Phrases (Simulate)'
+            )}
+          </Button>
+          <Button
+            onClick={handleClearInput}
+            disabled={isProcessing || seedPhrasesInput.length === 0}
+            variant="outline"
+            className="w-full sm:col-span-1"
+            aria-label="Clear Input Button"
+          >
+            <Eraser className="mr-2 h-4 w-4" />
+            Clear Input
+          </Button>
+          <Button
+            onClick={handleClearResults}
+            disabled={isProcessing || results.length === 0}
+            variant="outline"
+            className="w-full sm:col-span-1"
+            aria-label="Clear Results Button"
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            Clear Results
+          </Button>
+        </div>
       </div>
 
       {results.length > 0 && (

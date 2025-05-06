@@ -79,7 +79,7 @@ export default function Home() {
           )
         );
       } catch (error: any) {
-        console.error("Simulation error:", error);
+        console.warn("Simulated error caught:", error.message); // Use console.warn instead of console.error for expected simulation errors
         setResults((prevResults) =>
           prevResults.map((r, index) =>
             index === i

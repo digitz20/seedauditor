@@ -2,10 +2,10 @@
 'use client';
 
 import * as React from 'react';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input'; // Import Input
+import { Input } from '@/components/ui/input';
 import {
   Table,
   TableBody,
@@ -16,44 +16,26 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Terminal, Loader2, Wallet, Network, Coins, Copy, Eraser, Trash2, KeyRound, Info, Eye, Server, ExternalLink } from 'lucide-react';
+import { Terminal, Loader2, Wallet, Network, Coins, Copy, Eraser, Trash2, KeyRound, Info, ExternalLink, SearchCheck, ShieldAlert } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { analyzeSeedPhraseAndSimulateBalance, getRealWalletData, fetchAddressBalance, type SeedPhraseAuditResult, type RealWalletDataResult, type AddressBalanceResult } from './actions';
-import { Separator } from '@/components/ui/separator';
+import { processSeedPhrasesAndFetchBalances, type ProcessedWalletInfo } from './actions';
 
 
-interface ResultRow {
-  seedPhrase: string;
-  auditData: Omit<SeedPhraseAuditResult, 'seedPhrase'> | null; // Omit seedPhrase as it's already in ResultRow
-  error: string | null;
-  isLoading: boolean;
-}
-
-interface AddressBalanceRow {
-  address: string;
-  balanceData: AddressBalanceResult | null;
-  error: string | null;
-  isLoading: boolean;
+interface ResultRow extends ProcessedWalletInfo {
+  isLoading: boolean; // For individual row loading, though main processing is batched
 }
 
 
 export default function Home() {
   const [seedPhrasesInput, setSeedPhrasesInput] = useState<string>('');
+  const [apiKeyInput, setApiKeyInput] = useState<string>('ZKPID4755Q9BJZVXXZ96M3N6RSXYE7NTRV'); // Default Etherscan API Key
   const [results, setResults] = useState<ResultRow[]>([]);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   
-  const [apiKeyInput, setApiKeyInput] = useState<string>('ZKPID4755Q9BJZVXXZ96M3N6RSXYE7NTRV');
-  const [realDataResult, setRealDataResult] = useState<RealWalletDataResult | null>(null);
-  const [isFetchingRealData, setIsFetchingRealData] = useState<boolean>(false);
-
-  const [addressBalances, setAddressBalances] = useState<AddressBalanceRow[]>([]);
-  const [isFetchingAddressBalances, setIsFetchingAddressBalances] = useState<boolean>(false);
-
-
   const { toast } = useToast();
 
-  const handleAudit = async () => {
+  const handleFetchBalances = async () => {
     const phrases = seedPhrasesInput
       .split('\n')
       .map((p) => p.trim())
@@ -62,223 +44,97 @@ export default function Home() {
     if (phrases.length === 0) {
       toast({
         title: 'No Seed Phrases Entered',
-        description: 'Please enter at least one seed phrase for standard audit.',
+        description: 'Please enter at least one seed phrase.',
         variant: 'destructive',
       });
       return;
     }
+     if (!apiKeyInput.trim()) {
+      toast({
+        title: 'Etherscan API Key Required',
+        description: 'Please enter an Etherscan API key to fetch real ETH balances. If the key is invalid or missing, balances will be simulated as a fallback.',
+        variant: 'destructive', // Changed to destructive as it's a primary requirement for "real" data
+      });
+      // Allow to proceed, will use simulation if key is bad or missing
+    }
     if (phrases.length > 1000) {
       toast({
         title: 'Too Many Seed Phrases',
-        description: 'Please enter no more than 1000 seed phrases at a time for this simulation.',
+        description: 'Please enter no more than 1000 seed phrases at a time for optimal performance.',
         variant: 'destructive',
       });
       return;
     }
 
     setIsProcessing(true);
+    // Initialize results with loading state
     setResults(
       phrases.map((phrase) => ({
         seedPhrase: phrase,
-        auditData: null,
-        error: null,
-        isLoading: true,
-      }))
-    );
-    setAddressBalances([]); // Clear previous address balances when starting a new audit
-
-    for (let i = 0; i < phrases.length; i++) {
-      const phrase = phrases[i];
-      try {
-        await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 200));
-        const { seedPhrase: originalPhrase, ...auditData } = await analyzeSeedPhraseAndSimulateBalance(phrase);
-        setResults((prevResults) =>
-          prevResults.map((r) =>
-            r.seedPhrase === originalPhrase && r.isLoading // Ensure we update the correct loading row
-              ? { ...r, auditData, isLoading: false }
-              : r
-          )
-        );
-      } catch (error: any) {
-        setResults((prevResults) =>
-          prevResults.map((r) =>
-            r.seedPhrase === phrase && r.isLoading
-              ? {
-                  ...r,
-                  error: error.message || 'An unknown simulation error occurred',
-                  isLoading: false,
-                }
-              : r
-          )
-        );
-        toast({
-          title: 'Standard Simulation Error',
-          description: `Failed for phrase starting with "${phrase.substring(0,10)}...": ${error.message}`,
-          variant: 'destructive',
-        });
-      }
-    }
-    setIsProcessing(false);
-    toast({
-      title: 'Standard Simulation Complete',
-      description: `Finished processing ${phrases.length} seed phrases.`,
-    });
-  };
-
-  const handleFetchRealData = async () => {
-    const firstPhrase = seedPhrasesInput.split('\n').map(p => p.trim()).find(p => p.length > 0);
-
-    if (!firstPhrase) {
-      toast({
-        title: 'No Seed Phrase Entered',
-        description: 'Please enter at least one seed phrase to simulate real data fetching.',
-        variant: 'destructive',
-      });
-      return;
-    }
-    if (!apiKeyInput) {
-       toast({
-        title: 'API Key Missing',
-        description: 'Please enter an Etherscan API key to fetch real data or simulate real data fetching.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    setIsFetchingRealData(true);
-    setRealDataResult(null); // Clear previous results
-
-    try {
-      // For this conceptual "Real Data" section, we are still using the simulation `getRealWalletData`
-      // as it's designed to show a broader range of (simulated) assets, not just ETH.
-      // The `fetchAddressBalance` function, which can use the API key for Etherscan, is used
-      // in the "Fetch Address Balances" section for individual ETH balances.
-      const result = await getRealWalletData(apiKeyInput, firstPhrase);
-      setRealDataResult(result);
-      toast({
-        title: 'Conceptual "Real" Data Simulation Complete',
-        description: result.message,
-      });
-    } catch (error: any) {
-      setRealDataResult({
-        seedPhrase: firstPhrase,
-        derivedAddress: 'Error',
-        walletType: 'Error',
-        cryptoName: 'Error',
-        simulatedBalances: [],
-        message: `Simulation Error: ${error.message}`,
-      });
-      toast({
-        title: 'Conceptual "Real" Data Simulation Error',
-        description: error.message,
-        variant: 'destructive',
-      });
-    }
-    setIsFetchingRealData(false);
-  };
-
-  const handleFetchAllAddressBalances = async () => {
-    const derivedAddresses = results
-      .filter(r => r.auditData && r.auditData.derivedAddress && r.auditData.derivedAddress !== 'Error')
-      .map(r => r.auditData!.derivedAddress);
-
-    if (derivedAddresses.length === 0) {
-      toast({
-        title: 'No Derived Addresses',
-        description: 'Please run a standard audit first to derive addresses.',
-        variant: 'default',
-      });
-      return;
-    }
-     if (!apiKeyInput) {
-       toast({
-        title: 'Etherscan API Key Recommended',
-        description: 'For real ETH balances, please provide an Etherscan API key. Otherwise, balances will be simulated.',
-        variant: 'default',
-      });
-      // Continue with simulation if no API key
-    }
-
-
-    setIsFetchingAddressBalances(true);
-    setAddressBalances(
-      derivedAddresses.map(address => ({
-        address,
+        derivedAddress: null,
+        walletType: null,
+        cryptoName: null,
         balanceData: null,
         error: null,
-        isLoading: true,
+        derivationError: null,
+        isLoading: true, 
       }))
     );
 
-    for (const address of derivedAddresses) {
-      try {
-        // Pass the Etherscan API key (if provided) to fetchAddressBalance
-        const balanceData = await fetchAddressBalance(address, apiKeyInput || undefined);
-        setAddressBalances(prevBalances =>
-          prevBalances.map(b =>
-            b.address === address && b.isLoading
-              ? { ...b, balanceData, isLoading: false }
-              : b
-          )
-        );
-      } catch (error: any) {
-        setAddressBalances(prevBalances =>
-          prevBalances.map(b =>
-            b.address === address && b.isLoading
-              ? { ...b, error: error.message || 'Unknown error', isLoading: false }
-              : b
-          )
-        );
-        toast({
-          title: `Balance Fetch Error for ${maskValue(address, 6, 4)}`,
-          description: error.message,
-          variant: 'destructive',
-        });
-      }
-    }
-    setIsFetchingAddressBalances(false);
-    toast({
-      title: 'Address Balance Fetch Complete',
-      description: `Finished fetching balances for ${derivedAddresses.length} addresses. ${apiKeyInput ? 'Attempted to use Etherscan for real ETH balances.' : 'Balances are simulated.'}`,
-    });
-  };
+    try {
+      // Call the unified server action
+      const processedData = await processSeedPhrasesAndFetchBalances(phrases, apiKeyInput || undefined);
+      
+      // Update results based on the processed data
+      setResults(processedData.map(data => ({ ...data, isLoading: false })));
 
+      toast({
+        title: 'Balance Fetch Complete',
+        description: `Finished processing ${phrases.length} seed phrases. ${apiKeyInput ? 'Attempted to fetch real ETH balances using Etherscan.' : 'Etherscan API key not provided; ETH balances are simulated.'}`,
+      });
+
+    } catch (error: any) {
+      // This catch is for errors from the server action itself, not individual phrase errors
+      console.error("General error during balance fetching process:", error);
+      toast({
+        title: 'Processing Error',
+        description: `An unexpected error occurred: ${error.message}. Some results might be incomplete.`,
+        variant: 'destructive',
+      });
+       // Mark all as not loading, errors are handled per-row from `processedData`
+      setResults(prevResults => prevResults.map(r => ({...r, isLoading: false, error: r.error || "Overall process failed" })));
+    }
+
+    setIsProcessing(false);
+  };
 
   const handleClearInput = () => {
     setSeedPhrasesInput('');
-    setApiKeyInput(''); // Also clear API key input
+    // Keep API key or clear it? User preference. For now, clearing both.
+    // setApiKeyInput(''); // Let's keep the API key if they want to reuse it
     toast({
-      title: 'Input Cleared',
-      description: 'The seed phrase and API key input areas have been cleared.',
+      title: 'Seed Phrase Input Cleared',
+      description: 'The seed phrase input area has been cleared.',
     });
   };
 
   const handleClearResults = () => {
     setResults([]);
-    setRealDataResult(null); // Also clear real data results
-    setAddressBalances([]); // Clear address balances as well
     toast({
       title: 'Results Cleared',
-      description: 'All audit and balance results have been cleared.',
+      description: 'All fetched balance results have been cleared.',
     });
   };
 
   const getCurrencyIcon = (currencySymbol: string) => {
     switch (currencySymbol?.toUpperCase()) {
       case 'ETH': return 'Ξ';
-      case 'BTC': return '₿';
-      case 'SOL': return 'S';
-      case 'MATIC': return 'M';
-      case 'USDT': return '₮';
-      case 'USDC': return 'C';
-      case 'DAI': return 'D';
-      case 'WBTC': return 'B'; // For Wrapped Bitcoin
       default: return currencySymbol?.charAt(0)?.toUpperCase() || '?';
     }
   };
 
   const maskValue = (value: string, start = 5, end = 5) => {
-    if (!value || value.length < start + end + 3) return value;
+    if (!value || value.length < start + end + 3) return value; // Return original if too short to mask meaningfully
     return `${value.substring(0, start)}...${value.substring(value.length - end)}`;
   };
   
@@ -304,180 +160,137 @@ export default function Home() {
     <div className="container mx-auto p-4 md:p-8">
       <header className="mb-8 text-center">
         <h1 className="text-3xl font-bold text-primary mb-2 flex items-center justify-center gap-2">
-          <Wallet className="h-8 w-8" /> Seed Phrase Auditor & Balancer
+          <Wallet className="h-8 w-8" /> ETH Balance Auditor
         </h1>
         <p className="text-muted-foreground">
-          Enter seed phrases to simulate address derivation and (optionally) fetch real ETH balances via Etherscan.
+          Enter seed phrases and an Etherscan API key to derive addresses and fetch their real ETH balances.
         </p>
       </header>
 
       <Alert variant="destructive" className="mb-6 bg-destructive/10 border-destructive/50 text-destructive dark:text-destructive [&>svg]:text-destructive">
-        <Terminal className="h-4 w-4" />
+        <ShieldAlert className="h-4 w-4" />
         <AlertTitle>Critical Security Warning & Usage Notice</AlertTitle>
         <AlertDescription>
-          <strong>NEVER enter REAL seed phrases into ANY online tool you do not fully trust, especially this one if it's publicly hosted.</strong>
-          This application is for educational and demonstration purposes.
+          <strong>NEVER enter REAL seed phrases into ANY online tool you do not fully trust.</strong>
+          This application is for demonstration and educational purposes.
           <ul>
-            <li>It uses <code>ethers.js</code> for LOCAL address derivation from seed phrases.</li>
-            <li>The "Standard Audit" generates RANDOMLY SIMULATED balances for various illustrative tokens.</li>
-            <li>The "Fetch Real Data (Simulated)" feature is also a SIMULATION. It mimics how an API key might be used for a broad portfolio but <strong>DOES NOT</strong> make actual external API calls with your key for this section; data is still randomly generated.</li>
-            <li>The "Fetch Address Balances" feature WILL attempt to use the provided Etherscan API key to fetch REAL ETH balances for the derived addresses. If no key is provided or the call fails, it falls back to RANDOMLY GENERATED ETH balances.</li>
-            <li><strong>Exposing real seed phrases can lead to PERMANENT LOSS OF FUNDS. Only use the API key feature if you understand the risks and are using a key with appropriate permissions. The provided Etherscan API key is for demonstration and may be rate-limited or revoked.</strong></li>
+            <li>It uses <code>ethers.js</code> for LOCAL address derivation from seed phrases. Your seed phrases are NOT sent to any server for derivation.</li>
+            <li>It WILL attempt to use the provided Etherscan API key to fetch REAL ETH balances for the derived addresses.</li>
+            <li>If no Etherscan API key is provided, or if an Etherscan API call fails, it will fall back to RANDOMLY SIMULATED ETH balances for affected addresses and indicate this.</li>
+            <li><strong>Exposing real seed phrases can lead to PERMANENT LOSS OF FUNDS. Only use the API key feature if you understand the risks and are using a key with appropriate permissions. The pre-filled Etherscan API key is for demonstration and may be rate-limited or revoked.</strong></li>
           </ul>
         </AlertDescription>
       </Alert>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        <Card className="shadow-md">
-          <CardHeader>
-            <CardTitle>Seed Phrase Input</CardTitle>
-            <CardDescription>For local address derivation. Balances in the "Standard Audit Results" table below are simulated.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+      <Card className="shadow-lg mb-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5" /> Input Seed Phrases & API Key</CardTitle>
+          <CardDescription>
+            Provide seed phrases (one per line) and your Etherscan API key. 
+            Real ETH balances will be fetched if the key is valid; otherwise, simulated balances are shown as a fallback.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-3">
             <Textarea
-              placeholder="Paste your seed phrases here, one per line (e.g., standard 12 or 24 words)...
-SIMULATION ONLY - DO NOT USE REAL SEED PHRASES"
+              placeholder="Paste your seed phrases here, one per line...
+SIMULATION ONLY - DO NOT USE REAL SEED PHRASES UNLESS YOU ARE CERTAIN OF THE ENVIRONMENT'S SECURITY"
               value={seedPhrasesInput}
               onChange={(e) => setSeedPhrasesInput(e.target.value)}
-              rows={6}
+              rows={8}
               className="text-sm border-input focus:ring-accent focus:border-accent font-mono"
-              disabled={isProcessing || isFetchingRealData || isFetchingAddressBalances}
-              aria-label="Seed Phrases Input for Standard Simulation"
+              disabled={isProcessing}
+              aria-label="Seed Phrases Input"
             />
-             <Button
-                onClick={handleAudit}
-                disabled={isProcessing || isFetchingRealData || isFetchingAddressBalances || !seedPhrasesInput.trim()}
-                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
-                aria-label="Audit Phrases Button"
-              >
-                {isProcessing ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Processing Standard Audit...
-                  </>
-                ) : (
-                  'Run Standard Audit (Simulate Balances)'
-                )}
-              </Button>
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-md">
-          <CardHeader>
-            <CardTitle>API Key & Conceptual "Real" Data</CardTitle>
-            <CardDescription>
-              Enter your Etherscan API key to fetch <strong>real ETH balances</strong> in the "Address Balances" table below.
-              The "Fetch 'Real' Data" button demonstrates a <em>simulated</em> broad portfolio.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-             <Input
-                type="password" 
-                placeholder="Enter Etherscan API Key (Optional)"
-                value={apiKeyInput}
-                onChange={(e) => setApiKeyInput(e.target.value)}
-                className="text-sm border-input focus:ring-accent focus:border-accent font-mono"
-                disabled={isProcessing || isFetchingRealData || isFetchingAddressBalances}
-                aria-label="Etherscan API Key Input"
-              />
-            <Button
-              onClick={handleFetchRealData}
-              disabled={isProcessing || isFetchingRealData || isFetchingAddressBalances || !seedPhrasesInput.trim() || !apiKeyInput.trim()}
-              variant="secondary"
-              className="w-full"
-              aria-label="Fetch Conceptual Real Data Simulated Button"
-            >
-              {isFetchingRealData ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Simulating Broad Portfolio...
-                </>
-              ) : (
-                <>
-                  <KeyRound className="mr-2 h-4 w-4" />
-                  Fetch "Real" Data (Simulated Portfolio)
-                </>
-              )}
-            </Button>
-          </CardContent>
-           <CardFooter>
+          </div>
+          <div className="space-y-3">
+            <Input
+              type="password" 
+              placeholder="Enter Etherscan API Key"
+              value={apiKeyInput}
+              onChange={(e) => setApiKeyInput(e.target.value)}
+              className="text-sm border-input focus:ring-accent focus:border-accent font-mono"
+              disabled={isProcessing}
+              aria-label="Etherscan API Key Input"
+            />
              <Alert variant="default" className="text-xs mt-2 bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/30 dark:border-blue-700/50 dark:text-blue-300 [&>svg]:text-blue-700 dark:[&>svg]:text-blue-300">
                 <Info className="h-4 w-4"/>
                 <AlertTitle className="font-semibold">API Key Usage</AlertTitle>
                 <AlertDescription>
-                    The Etherscan API key you provide will be used by the "Fetch Address Balances" button to attempt to get <strong>actual ETH balances</strong> for the derived addresses.
-                    The "Fetch 'Real' Data (Simulated Portfolio)" button uses the first seed phrase and API key for a <em>conceptual simulation</em> of diverse token balances (still randomly generated) and does not reflect real multi-asset holdings.
-                    The pre-filled Etherscan API key is for demonstration purposes.
+                    The Etherscan API key is used to fetch <strong>actual ETH balances</strong>. If this key is invalid, missing, or rate-limited, or if an individual address query fails, a <em>simulated</em> ETH balance will be shown for that address as a fallback.
+                    The pre-filled key is for demonstration.
                 </AlertDescription>
             </Alert>
-           </CardFooter>
-        </Card>
-      </div>
-      
-      <div className="mb-6 flex flex-col sm:flex-row gap-2">
-          <Button
-            onClick={handleClearInput}
-            disabled={isProcessing || isFetchingRealData || isFetchingAddressBalances || (seedPhrasesInput.length === 0 && apiKeyInput.length === 0)}
-            variant="outline"
-            className="w-full sm:w-auto"
-            aria-label="Clear All Inputs Button"
-          >
-            <Eraser className="mr-2 h-4 w-4" />
-            Clear All Inputs
-          </Button>
-          <Button
-            onClick={handleClearResults}
-            disabled={isProcessing || isFetchingRealData || isFetchingAddressBalances || (results.length === 0 && !realDataResult && addressBalances.length === 0)}
-            variant="outline"
-            className="w-full sm:w-auto"
-            aria-label="Clear All Results Button"
-          >
-            <Trash2 className="mr-2 h-4 w-4" />
-            Clear All Results
-          </Button>
-          <Button
-              onClick={handleFetchAllAddressBalances}
-              disabled={isProcessing || isFetchingRealData || isFetchingAddressBalances || results.filter(r => r.auditData && r.auditData.derivedAddress && r.auditData.derivedAddress !== 'Error').length === 0}
-              variant="outline"
-              className="w-full sm:w-auto border-accent text-accent hover:bg-accent/10 hover:text-accent"
-              aria-label="Fetch Address Balances Button"
+          </div>
+        </CardContent>
+        <CardFooter className="flex flex-col sm:flex-row gap-2 pt-4 border-t">
+           <Button
+              onClick={handleFetchBalances}
+              disabled={isProcessing || !seedPhrasesInput.trim()}
+              className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground"
+              aria-label="Fetch ETH Balances Button"
             >
-              {isFetchingAddressBalances ? (
+              {isProcessing ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Fetching ETH Balances...
+                  Fetching Balances...
                 </>
               ) : (
                 <>
-                  <Server className="mr-2 h-4 w-4" />
-                  Fetch Address Balances {apiKeyInput ? '(Use API Key)' : '(Simulate)'}
+                  <SearchCheck className="mr-2 h-4 w-4" />
+                  Fetch ETH Balances {apiKeyInput.trim() ? '(Use API Key)' : '(Simulate All)'}
                 </>
               )}
             </Button>
-      </div>
-
-
+            <Button
+              onClick={handleClearInput}
+              disabled={isProcessing || seedPhrasesInput.length === 0}
+              variant="outline"
+              className="w-full sm:w-auto"
+              aria-label="Clear Seed Phrases Input Button"
+            >
+              <Eraser className="mr-2 h-4 w-4" />
+              Clear Seed Phrases
+            </Button>
+            <Button
+              onClick={handleClearResults}
+              disabled={isProcessing || results.length === 0}
+              variant="outline"
+              className="w-full sm:w-auto"
+              aria-label="Clear Results Button"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Clear Results
+            </Button>
+        </CardFooter>
+      </Card>
+      
       {results.length > 0 && (
-        <Card className="shadow-md mb-6">
+        <Card className="shadow-md">
           <CardHeader>
-            <CardTitle>Standard Audit Results (Simulated Balances)</CardTitle>
+            <CardTitle>ETH Balance Results</CardTitle>
+            <CardDescription>
+              {apiKeyInput.trim() ? `Attempted to use Etherscan API Key (masked): ${maskValue(apiKeyInput,4,4)}.` : 'No Etherscan API key provided; all ETH balances are simulated.'}
+              {' Balances marked "Simulated Fallback" could not be fetched via API.'}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
-              <TableCaption>Simulated derivation and randomly generated multi-asset balance results for multiple phrases.</TableCaption>
+              <TableCaption>Derived addresses and their ETH balances (real or simulated).</TableCaption>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[20%]">Seed Phrase (Masked)</TableHead>
-                  <TableHead className="w-[30%]">Derived Address (Masked)</TableHead>
-                  <TableHead className="w-[20%] text-center">Wallet Type</TableHead>
-                  <TableHead className="w-[10%] text-center">Primary Crypto</TableHead>
-                  <TableHead className="w-[15%] text-right">Simulated Balance</TableHead>
+                  <TableHead className="w-[18%]">Seed Phrase (Masked)</TableHead>
+                  <TableHead className="w-[27%]">Derived Address (Masked)</TableHead>
+                  <TableHead className="w-[15%] text-center">Wallet Type</TableHead>
+                  <TableHead className="w-[10%] text-center">Crypto</TableHead>
+                  <TableHead className="w-[15%] text-right">Balance (ETH)</TableHead>
+                  <TableHead className="w-[10%] text-center">Data Source</TableHead>
                   <TableHead className="w-[5%] text-center">Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {results.map((result, index) => (
-                  <TableRow key={`${result.seedPhrase}-${index}`} className="hover:bg-secondary/50">
+                  <TableRow key={`${result.seedPhrase}-${index}`} className={`hover:bg-secondary/50 ${result.derivationError ? 'bg-red-50 dark:bg-red-900/30' : ''}`}>
                     <TableCell className="font-mono text-xs align-top">
                       <div className="flex items-center gap-1">
                         <span>{maskValue(result.seedPhrase, 4, 4)}</span>
@@ -492,61 +305,77 @@ SIMULATION ONLY - DO NOT USE REAL SEED PHRASES"
                           <Copy className="h-3 w-3" />
                         </Button>
                       </div>
+                        {result.derivationError && <p className="text-destructive text-[10px] italic mt-1">Derivation: {result.derivationError}</p>}
+                        {result.error && !result.derivationError && <p className="text-destructive text-[10px] italic mt-1">{result.error}</p>}
                     </TableCell>
                     <TableCell className="font-mono text-xs align-top">
-                      {result.auditData ? (
+                      {result.isLoading && !result.derivedAddress && <span>Deriving...</span>}
+                      {result.derivedAddress ? (
                         <div className="flex items-center gap-1">
-                          <span>{maskValue(result.auditData.derivedAddress, 6, 4)}</span>
+                          <span>{maskValue(result.derivedAddress, 6, 4)}</span>
                           <Button
                             variant="ghost"
                             size="icon"
                             className="h-5 w-5 p-0 text-muted-foreground hover:text-primary"
-                            onClick={() => handleCopyText(result.auditData!.derivedAddress, 'Derived Address')}
+                            onClick={() => handleCopyText(result.derivedAddress, 'Derived Address')}
                             aria-label="Copy derived address"
                           >
                             <Copy className="h-3 w-3" />
                           </Button>
-                           <a href={`https://etherscan.io/address/${result.auditData.derivedAddress}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700">
+                           <a href={`https://etherscan.io/address/${result.derivedAddress}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700">
                               <ExternalLink className="h-3 w-3" />
                            </a>
                         </div>
-                      ) : result.error ? (
-                        '-'
+                      ) : result.derivationError ? (
+                        <span className="text-destructive text-xs italic">Derivation Failed</span>
                       ) : (
-                        'Deriving...'
+                        '-'
                       )}
                     </TableCell>
                     <TableCell className="text-center align-top text-xs">
-                      {result.auditData ? (
+                      {result.walletType ? (
                         <span className="inline-flex items-center gap-1">
                           <Network className="h-3 w-3 text-muted-foreground" />
-                          {result.auditData.walletType}
+                          {result.walletType}
                         </span>
-                      ) : '-'}
+                      ) : result.isLoading ? '' : '-'}
                     </TableCell>
                     <TableCell className="text-center align-top">
-                       {result.auditData ? (
+                       {result.cryptoName ? (
                         <span className="inline-flex items-center gap-1 text-xs">
                           <Coins className="h-3 w-3 text-muted-foreground" />
-                          {result.auditData.cryptoName}
+                          {result.cryptoName}
                         </span>
-                       ) : '-'}
+                       ) : result.isLoading ? '' : '-'}
                     </TableCell>
                     <TableCell className="text-right align-top">
-                      {result.auditData ? (
+                      {result.isLoading && !result.balanceData && <span className="text-muted-foreground text-xs">Loading...</span>}
+                      {result.balanceData ? (
                         <span className="flex items-center justify-end gap-1 font-medium text-xs">
-                          <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-accent/20 text-accent text-[10px] font-bold shrink-0">
-                            {getCurrencyIcon(result.auditData.simulatedCurrency)}
+                          <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full ${result.balanceData.isRealData ? 'bg-green-500/20 text-green-700 dark:text-green-400' : 'bg-accent/20 text-accent'} text-[10px] font-bold shrink-0`}>
+                            {getCurrencyIcon(result.balanceData.currency)}
                           </span>
-                          {result.auditData.simulatedBalance.toFixed(4)}{' '}
-                          <span className="text-muted-foreground text-[10px] shrink-0">{result.auditData.simulatedCurrency}</span>
+                          {result.balanceData.balance.toFixed(6)}{' '} {/* Increased precision for ETH */}
+                          <span className="text-muted-foreground text-[10px] shrink-0">{result.balanceData.currency}</span>
                         </span>
-                      ) : result.error ? (
-                        <span className="text-destructive text-xs italic">Error</span>
-                      ) : result.isLoading ? (
-                        <span className="text-muted-foreground text-xs">Loading...</span>
+                      ) : result.error && !result.derivationError ? ( // Show error only if not derivation error
+                        <span className="text-destructive text-xs italic">Fetch Error</span>
                       ) : (
-                        <span className="text-muted-foreground text-xs">-</span>
+                        !result.isLoading && '-'
+                      )}
+                    </TableCell>
+                     <TableCell className="text-center align-top text-xs">
+                      {result.isLoading && !result.balanceData && ''}
+                      {result.balanceData ? (
+                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${result.balanceData.isRealData ? 'bg-green-100 text-green-800 dark:bg-green-800/30 dark:text-green-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-800/30 dark:text-amber-300'}`}>
+                          {result.balanceData.isRealData ? 'Etherscan API' : 'Simulated Fallback'}
+                        </span>
+                      ) : result.derivationError ? ( // If derivation failed, no source to show
+                         '-'
+                      ): result.error ? ( // If general error, but not derivation, show simulated
+                        <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-800/30 dark:text-amber-300">Simulated Fallback</span>
+                      ): (
+                        !result.isLoading && '-'
                       )}
                     </TableCell>
                     <TableCell className="text-center align-top">
@@ -555,168 +384,16 @@ SIMULATION ONLY - DO NOT USE REAL SEED PHRASES"
                       ) : result.error ? (
                         <span className="text-destructive text-xs font-semibold">Failed</span>
                       ) : (
-                        <span className="text-green-600 text-xs font-semibold">Success</span>
+                        <span className="text-green-600 text-xs font-semibold">Done</span>
                       )}
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
-          </CardContent>
-        </Card>
-      )}
-      
-      {addressBalances.length > 0 && (
-        <Card className="shadow-md mb-6">
-          <CardHeader>
-            <CardTitle>Address ETH Balances</CardTitle>
-            <CardDescription>
-              {apiKeyInput ? `Attempted to fetch REAL ETH balances using Etherscan API Key (masked): ${maskValue(apiKeyInput,4,4)}.` : 'No Etherscan API key provided; ETH balances are SIMULATED.'}
-              <br/>
-              {apiKeyInput && 'If an API call failed for an address, its balance will be simulated instead.'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableCaption>
-                {apiKeyInput ? 'Real (via Etherscan API) or simulated ETH balance results.' : 'Simulated ETH balance results for derived addresses.'}
-              </TableCaption>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[60%]">Address (Masked)</TableHead>
-                  <TableHead className="w-[30%] text-right">Balance (ETH)</TableHead>
-                  <TableHead className="w-[10%] text-center">Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {addressBalances.map((item, index) => (
-                  <TableRow key={`${item.address}-${index}`} className="hover:bg-secondary/50">
-                    <TableCell className="font-mono text-xs align-top">
-                      <div className="flex items-center gap-1">
-                        <span>{maskValue(item.address, 8, 6)}</span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-5 w-5 p-0 text-muted-foreground hover:text-primary"
-                          onClick={() => handleCopyText(item.address, 'Address')}
-                          aria-label="Copy address"
-                        >
-                          <Copy className="h-3 w-3" />
-                        </Button>
-                         <a href={`https://etherscan.io/address/${item.address}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700">
-                            <ExternalLink className="h-3 w-3" />
-                         </a>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right align-top">
-                      {item.balanceData ? (
-                         <span className="flex items-center justify-end gap-1 font-medium text-xs">
-                          <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-accent/20 text-accent text-[10px] font-bold shrink-0">
-                            {getCurrencyIcon(item.balanceData.currency)}
-                          </span>
-                          {item.balanceData.balance.toFixed(6)}{' '} {/* Increased precision for ETH */}
-                          <span className="text-muted-foreground text-[10px] shrink-0">{item.balanceData.currency}</span>
-                        </span>
-                      ) : item.error ? (
-                        <span className="text-destructive text-xs italic">Error</span>
-                      ) : (
-                         <span className="text-muted-foreground text-xs">Loading...</span>
-                      )}
-                    </TableCell>
-                     <TableCell className="text-center align-top">
-                      {item.isLoading ? (
-                        <Loader2 className="h-4 w-4 animate-spin text-accent inline-block" />
-                      ) : item.error ? (
-                        <span className="text-destructive text-xs font-semibold">Failed</span>
-                      ) : (
-                        <span className="text-green-600 text-xs font-semibold">Fetched</span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
-
-
-      {realDataResult && (
-        <Card className="shadow-md">
-          <CardHeader>
-            <CardTitle>Conceptual "Real" Data Fetch Result (Simulated Portfolio)</CardTitle>
-            <CardDescription>
-              This data is SIMULATED for a diverse portfolio. No actual multi-asset API call was made.
-              Showing results for seed phrase: {maskValue(realDataResult.seedPhrase, 6, 4)}
-              {realDataResult.apiKeyUsed && ` (Conceptual API Key: ${realDataResult.apiKeyUsed})`}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3 mb-4 p-4 border rounded-md bg-secondary/30">
-                <p className="text-sm"><strong>Original Seed Phrase (Masked):</strong> <span className="font-mono">{maskValue(realDataResult.seedPhrase, 6,4)}</span></p>
-                <p className="text-sm"><strong>Derived Address (Masked):</strong> 
-                    <span className="font-mono flex items-center gap-1">
-                        {maskValue(realDataResult.derivedAddress, 8,6)}
-                        {realDataResult.derivedAddress !== "Error" && 
-                          <>
-                            <Button variant="ghost" size="icon" className="h-5 w-5 p-0" onClick={() => handleCopyText(realDataResult.derivedAddress, "Address")}><Copy className="h-3 w-3"/></Button>
-                            <a href={`https://etherscan.io/address/${realDataResult.derivedAddress}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700">
-                                <ExternalLink className="h-3 w-3" />
-                            </a>
-                          </>
-                        }
-                    </span>
-                </p>
-                <p className="text-sm"><strong>Wallet Type:</strong> {realDataResult.walletType}</p>
-                <p className="text-sm"><strong>Primary Crypto:</strong> {realDataResult.cryptoName}</p>
-                <p className="text-sm text-muted-foreground italic">{realDataResult.message}</p>
-            </div>
-
-            {realDataResult.simulatedBalances && realDataResult.simulatedBalances.length > 0 && (
-              <>
-                <h4 className="text-md font-semibold mb-2">Simulated Asset Balances (Illustrative):</h4>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Asset</TableHead>
-                      <TableHead className="text-right">Simulated Amount</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {realDataResult.simulatedBalances.map((balance, i) => (
-                      <TableRow key={i}>
-                        <TableCell className="font-medium text-xs">
-                           <span className="flex items-center gap-1.5">
-                             <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-accent/20 text-accent text-sm font-bold shrink-0">
-                               {getCurrencyIcon(balance.asset)}
-                             </span>
-                             {balance.asset}
-                           </span>
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-xs">
-                          {balance.amount.toFixed(balance.asset === 'ETH' || balance.asset === 'WBTC' ? 6 : 2)}{' '}
-                           <span className="text-muted-foreground">{balance.currency}</span>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </>
-            )}
-             {realDataResult.derivedAddress === "Error" && (
-                <Alert variant="destructive">
-                    <Terminal className="h-4 w-4" />
-                    <AlertTitle>Simulation Failed</AlertTitle>
-                    <AlertDescription>
-                        Could not complete the conceptual "real" data fetch simulation. Check the error message above.
-                    </AlertDescription>
-                </Alert>
-            )}
           </CardContent>
         </Card>
       )}
     </div>
   );
 }
-
-    

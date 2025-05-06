@@ -16,16 +16,23 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Terminal, Loader2, Wallet, Network, Coins, Copy, Eraser, Trash2, KeyRound, Info } from 'lucide-react';
+import { Terminal, Loader2, Wallet, Network, Coins, Copy, Eraser, Trash2, KeyRound, Info, Eye, Server } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { analyzeSeedPhraseAndSimulateBalance, getRealWalletData, type SeedPhraseAuditResult, type RealWalletDataResult } from './actions';
+import { analyzeSeedPhraseAndSimulateBalance, getRealWalletData, simulateFetchAddressBalance, type SeedPhraseAuditResult, type RealWalletDataResult, type SimulatedAddressBalanceResult } from './actions';
 import { Separator } from '@/components/ui/separator';
 
 
 interface ResultRow {
   seedPhrase: string;
   auditData: Omit<SeedPhraseAuditResult, 'seedPhrase'> | null; // Omit seedPhrase as it's already in ResultRow
+  error: string | null;
+  isLoading: boolean;
+}
+
+interface AddressBalanceRow {
+  address: string;
+  balanceData: SimulatedAddressBalanceResult | null;
   error: string | null;
   isLoading: boolean;
 }
@@ -39,6 +46,10 @@ export default function Home() {
   const [apiKeyInput, setApiKeyInput] = useState<string>('');
   const [realDataResult, setRealDataResult] = useState<RealWalletDataResult | null>(null);
   const [isFetchingRealData, setIsFetchingRealData] = useState<boolean>(false);
+
+  const [addressBalances, setAddressBalances] = useState<AddressBalanceRow[]>([]);
+  const [isFetchingAddressBalances, setIsFetchingAddressBalances] = useState<boolean>(false);
+
 
   const { toast } = useToast();
 
@@ -74,6 +85,7 @@ export default function Home() {
         isLoading: true,
       }))
     );
+    setAddressBalances([]); // Clear previous address balances when starting a new audit
 
     for (let i = 0; i < phrases.length; i++) {
       const phrase = phrases[i];
@@ -161,6 +173,63 @@ export default function Home() {
     setIsFetchingRealData(false);
   };
 
+  const handleFetchAllAddressBalances = async () => {
+    const derivedAddresses = results
+      .filter(r => r.auditData && r.auditData.derivedAddress && r.auditData.derivedAddress !== 'Error')
+      .map(r => r.auditData!.derivedAddress);
+
+    if (derivedAddresses.length === 0) {
+      toast({
+        title: 'No Derived Addresses',
+        description: 'Please run a standard audit first to derive addresses.',
+        variant: 'default',
+      });
+      return;
+    }
+
+    setIsFetchingAddressBalances(true);
+    setAddressBalances(
+      derivedAddresses.map(address => ({
+        address,
+        balanceData: null,
+        error: null,
+        isLoading: true,
+      }))
+    );
+
+    for (const address of derivedAddresses) {
+      try {
+        // Use apiKeyInput if provided, otherwise pass undefined
+        const balanceData = await simulateFetchAddressBalance(address, apiKeyInput || undefined);
+        setAddressBalances(prevBalances =>
+          prevBalances.map(b =>
+            b.address === address && b.isLoading
+              ? { ...b, balanceData, isLoading: false }
+              : b
+          )
+        );
+      } catch (error: any) {
+        setAddressBalances(prevBalances =>
+          prevBalances.map(b =>
+            b.address === address && b.isLoading
+              ? { ...b, error: error.message || 'Unknown error', isLoading: false }
+              : b
+          )
+        );
+        toast({
+          title: `Balance Fetch Error for ${maskValue(address, 6, 4)}`,
+          description: error.message,
+          variant: 'destructive',
+        });
+      }
+    }
+    setIsFetchingAddressBalances(false);
+    toast({
+      title: 'Address Balance Simulation Complete',
+      description: `Finished fetching simulated balances for ${derivedAddresses.length} addresses.`,
+    });
+  };
+
 
   const handleClearInput = () => {
     setSeedPhrasesInput('');
@@ -174,9 +243,10 @@ export default function Home() {
   const handleClearResults = () => {
     setResults([]);
     setRealDataResult(null); // Also clear real data results
+    setAddressBalances([]); // Clear address balances as well
     toast({
       title: 'Results Cleared',
-      description: 'All audit results have been cleared.',
+      description: 'All audit and balance results have been cleared.',
     });
   };
 
@@ -240,6 +310,7 @@ export default function Home() {
             <li>It <strong>DOES NOT</strong> connect to real wallets or blockchains for standard audit.</li>
             <li>Balances for standard audit are RANDOMLY GENERATED.</li>
             <li>The "Fetch Real Data (Simulated)" feature is also a SIMULATION. It mimics how an API key might be used but <strong>DOES NOT</strong> make actual external API calls with your key. Data is still randomly generated.</li>
+            <li>The "Fetch Address Balances (Simulated)" feature also uses RANDOMLY GENERATED data and does not query any real blockchain.</li>
             <li><strong>Exposing real seed phrases or API keys can lead to PERMANENT LOSS OF FUNDS.</strong></li>
           </ul>
         </AlertDescription>
@@ -258,12 +329,12 @@ export default function Home() {
               onChange={(e) => setSeedPhrasesInput(e.target.value)}
               rows={6}
               className="text-sm border-input focus:ring-accent focus:border-accent font-mono"
-              disabled={isProcessing || isFetchingRealData}
+              disabled={isProcessing || isFetchingRealData || isFetchingAddressBalances}
               aria-label="Seed Phrases Input for Standard Simulation"
             />
              <Button
                 onClick={handleAudit}
-                disabled={isProcessing || isFetchingRealData || !seedPhrasesInput.trim()}
+                disabled={isProcessing || isFetchingRealData || isFetchingAddressBalances || !seedPhrasesInput.trim()}
                 className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
                 aria-label="Audit Phrases Button"
               >
@@ -294,12 +365,12 @@ export default function Home() {
                 value={apiKeyInput}
                 onChange={(e) => setApiKeyInput(e.target.value)}
                 className="text-sm border-input focus:ring-accent focus:border-accent font-mono"
-                disabled={isProcessing || isFetchingRealData}
+                disabled={isProcessing || isFetchingRealData || isFetchingAddressBalances}
                 aria-label="Conceptual API Key Input"
               />
             <Button
               onClick={handleFetchRealData}
-              disabled={isProcessing || isFetchingRealData || !seedPhrasesInput.trim() || !apiKeyInput.trim()}
+              disabled={isProcessing || isFetchingRealData || isFetchingAddressBalances || !seedPhrasesInput.trim() || !apiKeyInput.trim()}
               variant="secondary"
               className="w-full"
               aria-label="Fetch Real Data Simulated Button"
@@ -318,7 +389,7 @@ export default function Home() {
             </Button>
           </CardContent>
            <CardFooter>
-             <Alert variant="default" className="text-xs mt-2 bg-blue-50 border-blue-200 text-blue-700 [&>svg]:text-blue-700">
+             <Alert variant="default" className="text-xs mt-2 bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-900/30 dark:border-blue-700/50 dark:text-blue-300 [&>svg]:text-blue-700 dark:[&>svg]:text-blue-300">
                 <Info className="h-4 w-4"/>
                 <AlertTitle className="font-semibold">How this "Real Data" Simulation Works</AlertTitle>
                 <AlertDescription>
@@ -332,7 +403,7 @@ export default function Home() {
       <div className="mb-6 flex flex-col sm:flex-row gap-2">
           <Button
             onClick={handleClearInput}
-            disabled={isProcessing || isFetchingRealData || (seedPhrasesInput.length === 0 && apiKeyInput.length === 0)}
+            disabled={isProcessing || isFetchingRealData || isFetchingAddressBalances || (seedPhrasesInput.length === 0 && apiKeyInput.length === 0)}
             variant="outline"
             className="w-full sm:w-auto"
             aria-label="Clear All Inputs Button"
@@ -342,7 +413,7 @@ export default function Home() {
           </Button>
           <Button
             onClick={handleClearResults}
-            disabled={isProcessing || isFetchingRealData || (results.length === 0 && !realDataResult)}
+            disabled={isProcessing || isFetchingRealData || isFetchingAddressBalances || (results.length === 0 && !realDataResult && addressBalances.length === 0)}
             variant="outline"
             className="w-full sm:w-auto"
             aria-label="Clear All Results Button"
@@ -350,6 +421,25 @@ export default function Home() {
             <Trash2 className="mr-2 h-4 w-4" />
             Clear All Results
           </Button>
+          <Button
+              onClick={handleFetchAllAddressBalances}
+              disabled={isProcessing || isFetchingRealData || isFetchingAddressBalances || results.filter(r => r.auditData && r.auditData.derivedAddress && r.auditData.derivedAddress !== 'Error').length === 0}
+              variant="outline"
+              className="w-full sm:w-auto border-accent text-accent hover:bg-accent/10 hover:text-accent"
+              aria-label="Fetch Address Balances Button"
+            >
+              {isFetchingAddressBalances ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Fetching Balances...
+                </>
+              ) : (
+                <>
+                  <Server className="mr-2 h-4 w-4" />
+                  Fetch Address Balances (Simulated)
+                </>
+              )}
+            </Button>
       </div>
 
 
@@ -458,6 +548,76 @@ export default function Home() {
           </CardContent>
         </Card>
       )}
+      
+      {addressBalances.length > 0 && (
+        <Card className="shadow-md mb-6">
+          <CardHeader>
+            <CardTitle>Simulated Address Balances</CardTitle>
+            <CardDescription>
+              {apiKeyInput ? `Conceptual API Key (masked): ${maskValue(apiKeyInput,4,4)} may have been conceptually used for this simulation.` : 'No API key was provided for this simulation.'}
+              <br/>
+              These are RANDOMLY GENERATED balances for derived addresses. No real blockchain was queried.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableCaption>Simulated balance results for derived Ethereum addresses.</TableCaption>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[60%]">Address (Masked)</TableHead>
+                  <TableHead className="w-[30%] text-right">Simulated Balance (ETH)</TableHead>
+                  <TableHead className="w-[10%] text-center">Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {addressBalances.map((item, index) => (
+                  <TableRow key={`${item.address}-${index}`} className="hover:bg-secondary/50">
+                    <TableCell className="font-mono text-xs align-top">
+                      <div className="flex items-center gap-1">
+                        <span>{maskValue(item.address, 8, 6)}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5 p-0 text-muted-foreground hover:text-primary"
+                          onClick={() => handleCopyText(item.address, 'Address')}
+                          aria-label="Copy address"
+                        >
+                          <Copy className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right align-top">
+                      {item.balanceData ? (
+                         <span className="flex items-center justify-end gap-1 font-medium text-xs">
+                          <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-accent/20 text-accent text-[10px] font-bold shrink-0">
+                            {getCurrencyIcon(item.balanceData.currency)}
+                          </span>
+                          {item.balanceData.balance.toFixed(4)}{' '}
+                          <span className="text-muted-foreground text-[10px] shrink-0">{item.balanceData.currency}</span>
+                        </span>
+                      ) : item.error ? (
+                        <span className="text-destructive text-xs italic">Error</span>
+                      ) : (
+                         <span className="text-muted-foreground text-xs">Loading...</span>
+                      )}
+                    </TableCell>
+                     <TableCell className="text-center align-top">
+                      {item.isLoading ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-accent inline-block" />
+                      ) : item.error ? (
+                        <span className="text-destructive text-xs font-semibold">Failed</span>
+                      ) : (
+                        <span className="text-green-600 text-xs font-semibold">Success</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
 
       {realDataResult && (
         <Card className="shadow-md">

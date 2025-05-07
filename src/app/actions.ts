@@ -65,7 +65,7 @@ export async function fetchEtherscanBalance(address: string, apiKey?: string): P
     
     if (data.status === '1') {
       if (typeof data.result === 'string' && /^\d+$/.test(data.result)) {
-        const balance = parseFloat(ethers.formatEther(data.result));
+        const balance = parseFloat(ethers.formatEther(data.result)) || 0;
         return [{ address, balance, currency: 'ETH', isRealData: true, dataSource: 'Etherscan API' }];
       } else {
         console.error(`Etherscan API: Invalid balance format in data.result for ${address}`, data.result);
@@ -120,15 +120,15 @@ export async function fetchBlockcypherBalances(address: string, apiKey?: string)
       let balance = 0;
       if (data && typeof data.final_balance === 'number' && data.final_balance >= 0) { 
         if (coin === 'eth') {
-          balance = parseFloat(ethers.formatEther(BigInt(data.final_balance).toString()));
+          balance = parseFloat(ethers.formatEther(BigInt(data.final_balance).toString())) || 0;
         } else if (['btc', 'ltc', 'doge', 'dash'].includes(coin)) {
-          balance = parseFloat(ethers.formatUnits(BigInt(data.final_balance).toString(), 8)); 
+          balance = parseFloat(ethers.formatUnits(BigInt(data.final_balance).toString(), 8)) || 0; 
         }
       } else if (data && typeof data.balance === 'number' && data.balance >=0) { 
          if (coin === 'eth') {
-          balance = parseFloat(ethers.formatEther(BigInt(data.balance).toString()));
+          balance = parseFloat(ethers.formatEther(BigInt(data.balance).toString())) || 0;
         } else if (['btc', 'ltc', 'doge', 'dash'].includes(coin)) {
-          balance = parseFloat(ethers.formatUnits(BigInt(data.balance).toString(), 8)); 
+          balance = parseFloat(ethers.formatUnits(BigInt(data.balance).toString(), 8)) || 0; 
         }
       }
        results.push({ address, balance, currency: coin.toUpperCase(), isRealData: true, dataSource: 'BlockCypher API' });
@@ -188,7 +188,7 @@ export async function fetchAlchemyBalances(address: string, apiKey?: string): Pr
       }
       
       if (data && data.result && typeof data.result === 'string') {
-        const balance = parseFloat(ethers.formatEther(data.result));
+        const balance = parseFloat(ethers.formatEther(data.result)) || 0;
         results.push({ address, balance, currency: network, isRealData: true, dataSource: 'Alchemy API' });
       } else if (data && data.error) {
         console.warn(`Alchemy ${network}: ${data.error.message} for ${address}`);
@@ -207,6 +207,8 @@ export async function fetchAlchemyBalances(address: string, apiKey?: string): Pr
 
 
 export async function fetchBlockstreamBalance(address: string, clientId?: string, clientSecret?: string): Promise<AddressBalanceResult[]> {
+  // Blockstream API is public for address lookups, clientId/Secret are not typically used for this endpoint.
+  // They are kept in the signature for consistency but might not be actively used in the fetch call itself.
   try {
     const response = await fetch(`${BLOCKSTREAM_API_URL}/address/${address}`);
     
@@ -220,9 +222,12 @@ export async function fetchBlockstreamBalance(address: string, clientId?: string
 
     if (!response.ok) {
         if (response.status === 400 || response.status === 404 || (responseBodyText && responseBodyText.toLowerCase().includes("invalid bitcoin address"))) {
+             // This means the address is likely not a Bitcoin address or has no history.
+             // For the purpose of this tool, we can consider this a valid "checked" state with 0 balance.
              console.warn(`Blockstream: Address ${address} not found or invalid (likely non-BTC). Response: ${responseBodyText}`);
              return [{ address, balance: 0, currency: 'BTC', isRealData: true, dataSource: 'Blockstream API' }]; 
         }
+        // Other errors (e.g., 500, rate limits if they were to apply)
         console.error(`Blockstream API error for ${address}: ${response.status} ${responseBodyText}`);
         return [{ address, balance: 0, currency: 'BTC', isRealData: false, dataSource: 'Error' }];
     }
@@ -232,6 +237,7 @@ export async function fetchBlockstreamBalance(address: string, clientId?: string
         data = JSON.parse(responseBodyText);
     } catch (jsonError: any) {
         console.error(`Blockstream API: Error parsing JSON response for ${address}: ${jsonError.message}. Response: ${responseBodyText}`);
+        // If parsing fails but message indicates invalid address, treat as 0 balance.
         if (responseBodyText && responseBodyText.toLowerCase().includes("invalid bitcoin address")) { 
             return [{ address, balance: 0, currency: 'BTC', isRealData: true, dataSource: 'Blockstream API' }]; 
         }
@@ -240,16 +246,21 @@ export async function fetchBlockstreamBalance(address: string, clientId?: string
 
     if (data && data.chain_stats && typeof data.chain_stats.funded_txo_sum === 'number' && typeof data.chain_stats.spent_txo_sum === 'number') {
         const balanceSatoshis = data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum;
-        const balance = parseFloat(ethers.formatUnits(BigInt(balanceSatoshis).toString(), 8)); 
+        const balance = parseFloat(ethers.formatUnits(BigInt(balanceSatoshis).toString(), 8)) || 0; 
         return [{ address, balance, currency: 'BTC', isRealData: true, dataSource: 'Blockstream API' }];
     } else {
+        // Address found but no transaction stats, means 0 balance.
         console.warn(`Blockstream: Address ${address} found but no transaction stats. Assuming zero balance. Data:`, data);
         return [{ address, balance: 0, currency: 'BTC', isRealData: true, dataSource: 'Blockstream API'}];
     }
 
   } catch (error: any) {
-    if (error.message?.includes('invalid bitcoin address') || error.message?.includes('Failed to fetch')) {
+    // Catch errors related to fetch itself or unexpected issues.
+    // If the error message clearly indicates it's due to an invalid address type for BTC,
+    // we can treat it as a 0 balance for BTC.
+    if (error.message?.includes('invalid bitcoin address') || error.message?.includes('Failed to fetch')) { // 'Failed to fetch' could be network or DNS for a bad address format
         console.warn(`Blockstream: Error likely due to non-BTC address ${address} or network issue: ${error.message}`);
+        // Still return as 'N/A' for isRealData false, as we couldn't confirm via API directly for BTC.
         return [{ address, balance: 0, currency: 'BTC', isRealData: false, dataSource: 'N/A'}];
     }
     console.error(`Error fetching Blockstream BTC balance for ${address}:`, error.message, error.stack);
@@ -297,18 +308,22 @@ export async function processSeedPhrasesAndFetchBalances(
       }
 
       if (derivedAddress) {
+          // Etherscan
           if (etherscanApiKey) {
               const ethBalances = await fetchEtherscanBalance(derivedAddress, etherscanApiKey);
               allBalancesForPhrase.push(...ethBalances);
           }
+          // BlockCypher
           if (blockcypherApiKey) {
               const bcBalances = await fetchBlockcypherBalances(derivedAddress, blockcypherApiKey);
               allBalancesForPhrase.push(...bcBalances);
           }
+          // Alchemy
           if (alchemyApiKey) {
               const alchemyBalances = await fetchAlchemyBalances(derivedAddress, alchemyApiKey);
               allBalancesForPhrase.push(...alchemyBalances);
           }
+          // Blockstream (BTC) - Client ID/Secret might not be used by public endpoint but passed if available
           const btcBalances = await fetchBlockstreamBalance(derivedAddress, blockstreamClientId, blockstreamClientSecret); 
           allBalancesForPhrase.push(...btcBalances);
       }
@@ -316,25 +331,30 @@ export async function processSeedPhrasesAndFetchBalances(
       const positiveRealBalances = allBalancesForPhrase.filter(b => b.isRealData && b.balance > 0 && b.dataSource !== 'Error' && b.dataSource !== 'N/A');
       const apiErrorOccurred = allBalancesForPhrase.some(b => b.dataSource === 'Error');
       
-      if (positiveRealBalances.length > 0) {
+      // Only add to results if there are positive balances from real APIs and no derivation error
+      if (positiveRealBalances.length > 0 && !derivationError) {
           results.push({
               seedPhrase: phrase,
               derivedAddress: derivedAddress,
               walletType: walletType,
               balanceData: positiveRealBalances, 
               derivationError: null, 
-              error: apiErrorOccurred ? "Positive balances found, but some API calls may have failed for other assets." : null
+              error: apiErrorOccurred ? "Positive balance(s) found, but some API calls may have failed for other assets." : null
           });
       } else {
-          if (!derivationError) {
+          // Log skipped phrases if no positive balances or if derivation failed (already handled by continue)
+          if (!derivationError) { // Only log if derivation didn't fail but no positive balances were found
                console.log(`Action: No positive balances found for seed phrase "${phrase.substring(0,20)}..." (Address: ${derivedAddress}). API errors: ${apiErrorOccurred}. Skipping.`);
           }
       }
     }
     return results;
   } catch (e: any) {
+    // Catch any truly unexpected errors in the main loop or setup
     console.error(`Critical unhandled error in processSeedPhrasesAndFetchBalances: ${e.message}`, e.stack);
     // Return accumulated results or an empty array to prevent client "Failed to fetch"
-    return results; 
+    return results; // Or return an empty array: return [];
   }
 }
+
+    

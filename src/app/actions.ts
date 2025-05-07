@@ -206,8 +206,10 @@ export async function fetchAlchemyBalances(address: string, apiKey?: string): Pr
 }
 
 
-export async function fetchBlockstreamBalance(address: string, apiKey?: string): Promise<AddressBalanceResult[]> {
-  // apiKey is not strictly used by public blockstream.info API but kept for consistency
+export async function fetchBlockstreamBalance(address: string, clientId?: string, clientSecret?: string): Promise<AddressBalanceResult[]> {
+  // clientId and clientSecret are not strictly used by public blockstream.info API for simple balance checks
+  // but are included for potential future use with authenticated endpoints or other Blockstream services.
+  // For now, this function behaves like a public API call.
   try {
     const response = await fetch(`${BLOCKSTREAM_API_URL}/address/${address}`);
     
@@ -264,14 +266,14 @@ export async function processSeedPhrasesAndFetchBalances(
   etherscanApiKey?: string,
   blockcypherApiKey?: string,
   alchemyApiKey?: string,
-  blockstreamApiKey?: string 
+  blockstreamClientId?: string,
+  blockstreamClientSecret?: string
 ): Promise<ProcessedWalletInfo[]> {
   const results: ProcessedWalletInfo[] = [];
 
   for (const phrase of seedPhrases) {
     let wallet: ethers.Wallet | null = null;
     let derivedAddress: string | null = null;
-    // let derivationError: string | null = null; // Keep for potential internal logging if needed
     let walletType: string = "Unknown"; 
     
     const allBalancesForPhrase: AddressBalanceResult[] = [];
@@ -282,7 +284,6 @@ export async function processSeedPhrasesAndFetchBalances(
       walletType = "EVM (Ethereum-compatible)";
     } catch (e: any) {
       console.error(`Action: Error deriving wallet from seed phrase "${phrase.substring(0,20)}...": ${e.message}`);
-      // Do not add to results if derivation fails, just log and continue.
       continue; 
     }
 
@@ -299,14 +300,14 @@ export async function processSeedPhrasesAndFetchBalances(
             const alchemyBalances = await fetchAlchemyBalances(derivedAddress, alchemyApiKey);
             allBalancesForPhrase.push(...alchemyBalances);
         }
-        const btcBalances = await fetchBlockstreamBalance(derivedAddress, blockstreamApiKey); 
+        // Pass clientId and clientSecret to fetchBlockstreamBalance
+        const btcBalances = await fetchBlockstreamBalance(derivedAddress, blockstreamClientId, blockstreamClientSecret); 
         allBalancesForPhrase.push(...btcBalances);
     }
     
     const positiveRealBalances = allBalancesForPhrase.filter(b => b.isRealData && b.balance > 0 && b.dataSource !== 'Error' && b.dataSource !== 'N/A');
     const apiErrorOccurred = allBalancesForPhrase.some(b => b.dataSource === 'Error');
     
-    // Only add to results if there is at least one positive, real balance.
     if (positiveRealBalances.length > 0) {
         results.push({
             seedPhrase: phrase,
@@ -317,7 +318,6 @@ export async function processSeedPhrasesAndFetchBalances(
             error: apiErrorOccurred ? "Positive balances found, but some API calls may have failed for other assets." : null
         });
     } else {
-        // If no positive balances, log it server-side but don't add to results
         console.log(`Action: No positive balances found for seed phrase "${phrase.substring(0,20)}..." (Address: ${derivedAddress}). API errors: ${apiErrorOccurred}. Skipping.`);
     }
   }

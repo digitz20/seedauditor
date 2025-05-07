@@ -16,7 +16,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Activity, Terminal, Loader2, Wallet, Network, Coins, Copy, Eraser, Trash2, KeyRound, Info, ExternalLink, SearchCheck, ShieldAlert, DatabaseZap, Pause, Play, Square, Settings2, ListChecks, ScrollText, PlusCircle, Bitcoin } from 'lucide-react';
+import { Activity, Terminal, Loader2, Wallet, Network, Coins, Copy, Eraser, Trash2, KeyRound, Info, ExternalLink, SearchCheck, ShieldAlert, DatabaseZap, Pause, Play, Square, Settings2, ListChecks, ScrollText, PlusCircle, Bitcoin, Eye, EyeOff } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -43,7 +43,12 @@ export default function Home() {
   const [etherscanApiKeyInput, setEtherscanApiKeyInput] = useState<string>(process.env.NEXT_PUBLIC_ETHERSCAN_API_KEY || 'ZKPID4755Q9BJZVXXZ96M3N6RSXYE7NTRV');
   const [blockcypherApiKeyInput, setBlockcypherApiKeyInput] = useState<string>(process.env.NEXT_PUBLIC_BLOCKCYPHER_API_KEY || '41ccb7c601ef4bad99b3698cfcea9a8c');
   const [alchemyApiKeyInput, setAlchemyApiKeyInput] = useState<string>(process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || 'p4UZuRIRutN5yn06iKDjOcAX2nB75ZRp');
-  const [blockstreamApiKeyInput, setBlockstreamApiKeyInput] = useState<string>(process.env.NEXT_PUBLIC_BLOCKSTREAM_API_KEY || 'bhdkd789399dkjhdyyei98993okllejjejii87889ekkdjh'); // Added Blockstream API key state
+  const [blockstreamApiKeyInput, setBlockstreamApiKeyInput] = useState<string>(process.env.NEXT_PUBLIC_BLOCKSTREAM_API_KEY || 'bhdkd789399dkjhdyyei98993okllejjejii87889ekkdjh');
+
+  const [showEtherscanKey, setShowEtherscanKey] = useState(false);
+  const [showBlockcypherKey, setShowBlockcypherKey] = useState(false);
+  const [showAlchemyKey, setShowAlchemyKey] = useState(false);
+  const [showBlockstreamKey, setShowBlockstreamKey] = useState(false);
 
   const [results, setResults] = useState<ResultRow[]>([]);
   const [isProcessingManual, setIsProcessingManual] = useState<boolean>(false);
@@ -66,7 +71,7 @@ export default function Home() {
   const etherscanApiKeyInputRef = useRef(etherscanApiKeyInput);
   const blockcypherApiKeyInputRef = useRef(blockcypherApiKeyInput);
   const alchemyApiKeyInputRef = useRef(alchemyApiKeyInput);
-  const blockstreamApiKeyInputRef = useRef(blockstreamApiKeyInput); // Added Blockstream API key ref
+  const blockstreamApiKeyInputRef = useRef(blockstreamApiKeyInput);
 
 
   useEffect(() => { isAutoGeneratingRef.current = isAutoGenerating; }, [isAutoGenerating]);
@@ -75,7 +80,7 @@ export default function Home() {
   useEffect(() => { etherscanApiKeyInputRef.current = etherscanApiKeyInput; }, [etherscanApiKeyInput]);
   useEffect(() => { blockcypherApiKeyInputRef.current = blockcypherApiKeyInput; }, [blockcypherApiKeyInput]);
   useEffect(() => { alchemyApiKeyInputRef.current = alchemyApiKeyInput; }, [alchemyApiKeyInput]);
-  useEffect(() => { blockstreamApiKeyInputRef.current = blockstreamApiKeyInput; }, [blockstreamApiKeyInput]); // Added Blockstream API key effect
+  useEffect(() => { blockstreamApiKeyInputRef.current = blockstreamApiKeyInput; }, [blockstreamApiKeyInput]);
 
 
   const addLogMessage = useCallback((message: string) => {
@@ -121,9 +126,9 @@ export default function Home() {
         balanceData: itemBalances.map(b => ({ 
              address: item.derivedAddress,
              balance: b.balance,
-             currency: item.currency || item.cryptoName, 
-             isRealData: item.isRealData !== undefined ? item.isRealData : ['Etherscan API', 'BlockCypher API', 'Alchemy API', 'Blockstream API'].includes(item.dataSource),
-             dataSource: item.dataSource as AddressBalanceResult['dataSource'],
+             currency: item.currency || b.cryptoName, // Corrected: was item.cryptoName, ensure `b` is used for flow items
+             isRealData: item.isRealData !== undefined ? item.isRealData : ['Etherscan API', 'BlockCypher API', 'Alchemy API', 'Blockstream API'].includes(b.dataSource), // Ensure `b` is used for flow items
+             dataSource: b.dataSource as AddressBalanceResult['dataSource'], // Ensure `b` is used for flow items
         })),
         error: item.error || null,
         derivationError: item.derivationError || null,
@@ -156,7 +161,7 @@ export default function Home() {
     const hasEtherscanKey = etherscanApiKeyInputRef.current.trim();
     const hasBlockcypherKey = blockcypherApiKeyInputRef.current.trim();
     const hasAlchemyKey = alchemyApiKeyInputRef.current.trim();
-    const hasBlockstreamKey = blockstreamApiKeyInputRef.current.trim(); // Check for Blockstream key presence
+    const hasBlockstreamKey = blockstreamApiKeyInputRef.current.trim(); 
     
     if (!hasEtherscanKey && !hasBlockcypherKey && !hasAlchemyKey && !hasBlockstreamKey) {
       toast({
@@ -205,7 +210,7 @@ export default function Home() {
         etherscanApiKeyInputRef.current || undefined,
         blockcypherApiKeyInputRef.current || undefined,
         alchemyApiKeyInputRef.current || undefined,
-        blockstreamApiKeyInputRef.current || undefined // Pass Blockstream key
+        blockstreamApiKeyInputRef.current || undefined 
       );
       
       const finalResults = processAndSetDisplayBalances(processedDataFromAction, false);
@@ -254,7 +259,7 @@ export default function Home() {
         etherscanApiKey: etherscanApiKeyInputRef.current || undefined,
         blockcypherApiKey: blockcypherApiKeyInputRef.current || undefined,
         alchemyApiKey: alchemyApiKeyInputRef.current || undefined,
-        blockstreamApiKey: blockstreamApiKeyInputRef.current || undefined, // Pass Blockstream key
+        blockstreamApiKey: blockstreamApiKeyInputRef.current || undefined,
       };
 
       const generatedDataFromFlow: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
@@ -326,7 +331,7 @@ export default function Home() {
         etherscanApiKey: etherscanApiKeyInputRef.current || undefined,
         blockcypherApiKey: blockcypherApiKeyInputRef.current || undefined,
         alchemyApiKey: alchemyApiKeyInputRef.current || undefined,
-        blockstreamApiKey: blockstreamApiKeyInputRef.current || undefined, // Pass Blockstream key
+        blockstreamApiKey: blockstreamApiKeyInputRef.current || undefined, 
       };
 
       const generatedDataFromFlow: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
@@ -422,7 +427,7 @@ export default function Home() {
     if (!currencySymbol) return '?';
     const upperSymbol = currencySymbol.toUpperCase();
     if (upperSymbol.includes('ETH')) return 'Ξ';
-    if (upperSymbol.includes('BTC')) return <Bitcoin className="h-3 w-3"/>; // Use Lucide Bitcoin icon
+    if (upperSymbol.includes('BTC')) return <Bitcoin className="h-3 w-3"/>;
     if (upperSymbol.includes('LTC')) return 'Ł';
     if (upperSymbol.includes('DOGE')) return 'Ð';
     if (upperSymbol.includes('DASH')) return 'D';
@@ -477,7 +482,7 @@ export default function Home() {
     if (etherscanApiKeyInputRef.current?.trim()) keys.push('Etherscan');
     if (blockcypherApiKeyInputRef.current?.trim()) keys.push('BlockCypher');
     if (alchemyApiKeyInputRef.current?.trim()) keys.push('Alchemy');
-    if (blockstreamApiKeyInputRef.current?.trim()) keys.push('Blockstream'); // Add Blockstream to the list
+    if (blockstreamApiKeyInputRef.current?.trim()) keys.push('Blockstream');
     
     if (keys.length === 0) return ' (No API Keys - Manual Check Ineffective)';
     if (keys.length === 1) return ` (Use ${keys[0]} API)`;
@@ -554,15 +559,28 @@ export default function Home() {
             </div>
           </div>
           <div className="space-y-3">
-            <Input
-              type="password"
-              placeholder="Enter Etherscan API Key"
-              value={etherscanApiKeyInput}
-              onChange={(e) => setEtherscanApiKeyInput(e.target.value)}
-              className="text-sm border-input focus:ring-accent focus:border-accent font-mono"
-              disabled={isProcessingManual || isAutoGenerating}
-              aria-label="Etherscan API Key Input"
-            />
+            <div className="relative">
+              <Input
+                type={showEtherscanKey ? "text" : "password"}
+                placeholder="Enter Etherscan API Key"
+                value={etherscanApiKeyInput}
+                onChange={(e) => setEtherscanApiKeyInput(e.target.value)}
+                className="text-sm border-input focus:ring-accent focus:border-accent font-mono pr-10"
+                disabled={isProcessingManual || isAutoGenerating}
+                aria-label="Etherscan API Key Input"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-muted-foreground hover:text-primary"
+                onClick={() => setShowEtherscanKey(!showEtherscanKey)}
+                disabled={isProcessingManual || isAutoGenerating}
+                aria-label={showEtherscanKey ? "Hide Etherscan API Key" : "Show Etherscan API Key"}
+              >
+                {showEtherscanKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </Button>
+            </div>
             <Alert variant="info" className="text-xs mt-2">
               <DatabaseZap className="h-4 w-4" />
               <AlertTitle className="font-semibold">Etherscan API</AlertTitle>
@@ -572,15 +590,28 @@ export default function Home() {
             </Alert>
           </div>
           <div className="space-y-3">
-            <Input
-              type="password"
-              placeholder="Enter BlockCypher API Key"
-              value={blockcypherApiKeyInput}
-              onChange={(e) => setBlockcypherApiKeyInput(e.target.value)}
-              className="text-sm border-input focus:ring-accent focus:border-accent font-mono"
-              disabled={isProcessingManual || isAutoGenerating}
-              aria-label="BlockCypher API Key Input"
-            />
+            <div className="relative">
+              <Input
+                type={showBlockcypherKey ? "text" : "password"}
+                placeholder="Enter BlockCypher API Key"
+                value={blockcypherApiKeyInput}
+                onChange={(e) => setBlockcypherApiKeyInput(e.target.value)}
+                className="text-sm border-input focus:ring-accent focus:border-accent font-mono pr-10"
+                disabled={isProcessingManual || isAutoGenerating}
+                aria-label="BlockCypher API Key Input"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-muted-foreground hover:text-primary"
+                onClick={() => setShowBlockcypherKey(!showBlockcypherKey)}
+                disabled={isProcessingManual || isAutoGenerating}
+                aria-label={showBlockcypherKey ? "Hide BlockCypher API Key" : "Show BlockCypher API Key"}
+              >
+                {showBlockcypherKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </Button>
+            </div>
             <Alert variant="info" className="text-xs mt-2">
               <DatabaseZap className="h-4 w-4" />
               <AlertTitle className="font-semibold">BlockCypher API</AlertTitle>
@@ -590,15 +621,28 @@ export default function Home() {
             </Alert>
           </div>
            <div className="space-y-3">
-            <Input
-              type="password"
-              placeholder="Enter Alchemy API Key"
-              value={alchemyApiKeyInput}
-              onChange={(e) => setAlchemyApiKeyInput(e.target.value)}
-              className="text-sm border-input focus:ring-accent focus:border-accent font-mono"
-              disabled={isProcessingManual || isAutoGenerating}
-              aria-label="Alchemy API Key Input"
-            />
+            <div className="relative">
+              <Input
+                type={showAlchemyKey ? "text" : "password"}
+                placeholder="Enter Alchemy API Key"
+                value={alchemyApiKeyInput}
+                onChange={(e) => setAlchemyApiKeyInput(e.target.value)}
+                className="text-sm border-input focus:ring-accent focus:border-accent font-mono pr-10"
+                disabled={isProcessingManual || isAutoGenerating}
+                aria-label="Alchemy API Key Input"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-muted-foreground hover:text-primary"
+                onClick={() => setShowAlchemyKey(!showAlchemyKey)}
+                disabled={isProcessingManual || isAutoGenerating}
+                aria-label={showAlchemyKey ? "Hide Alchemy API Key" : "Show Alchemy API Key"}
+              >
+                {showAlchemyKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </Button>
+            </div>
             <Alert variant="info" className="text-xs mt-2">
               <DatabaseZap className="h-4 w-4" />
               <AlertTitle className="font-semibold">Alchemy API</AlertTitle>
@@ -608,15 +652,28 @@ export default function Home() {
             </Alert>
           </div>
            <div className="space-y-3">
-            <Input
-              type="password"
-              placeholder="Enter Blockstream 'API Key' (Informational)"
-              value={blockstreamApiKeyInput}
-              onChange={(e) => setBlockstreamApiKeyInput(e.target.value)}
-              className="text-sm border-input focus:ring-accent focus:border-accent font-mono"
-              disabled={isProcessingManual || isAutoGenerating}
-              aria-label="Blockstream API Key Input (Informational)"
-            />
+            <div className="relative">
+              <Input
+                type={showBlockstreamKey ? "text" : "password"}
+                placeholder="Enter Blockstream 'API Key' (Informational)"
+                value={blockstreamApiKeyInput}
+                onChange={(e) => setBlockstreamApiKeyInput(e.target.value)}
+                className="text-sm border-input focus:ring-accent focus:border-accent font-mono pr-10"
+                disabled={isProcessingManual || isAutoGenerating}
+                aria-label="Blockstream API Key Input (Informational)"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-muted-foreground hover:text-primary"
+                onClick={() => setShowBlockstreamKey(!showBlockstreamKey)}
+                disabled={isProcessingManual || isAutoGenerating}
+                aria-label={showBlockstreamKey ? "Hide Blockstream API Key" : "Show Blockstream API Key"}
+              >
+                {showBlockstreamKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </Button>
+            </div>
             <Alert variant="info" className="text-xs mt-2">
               <DatabaseZap className="h-4 w-4" />
               <AlertTitle className="font-semibold">Blockstream API</AlertTitle>

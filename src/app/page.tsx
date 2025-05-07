@@ -1,3 +1,4 @@
+
 // @ts-nocheck
 'use client';
 
@@ -59,7 +60,9 @@ export default function Home() {
 
   const [isAutoGenerating, setIsAutoGenerating] = useState(false);
   const [isAutoGenerationPaused, setIsAutoGenerationPaused] = useState(false);
-  const [checkedPhrasesCount, setCheckedPhrasesCount] = useState<number>(0);
+  const [checkedPhrasesCount, setCheckedPhrasesCount] = useState<number>(0); // Cumulative for session logs
+  const [phrasesInBatchDisplay, setPhrasesInBatchDisplay] = useState<number>(0); // For UI display of batch size
+  
   const [currentGenerationStatus, setCurrentGenerationStatus] = useState<'Stopped' | 'Running' | 'Paused'>('Stopped');
   const [generationLogs, setGenerationLogs] = useState<string[]>([]);
   
@@ -91,13 +94,12 @@ export default function Home() {
   }, []);
 
   const processAndSetDisplayBalances = useCallback((data: ProcessedWalletInfo[] | GenerateAndCheckSeedPhrasesOutput, isFromFlow: boolean = false): ResultRow[] => {
-    if (!data) { // Handle null data from flow execution error
+    if (!data) { 
         addLogMessage(`Flow Execution Error: Received null data from flow.`);
         return [];
     }
 
     return data.map(item => {
-      // Item will only be present if it has a positive balance from backend processing
       let firstRealPositiveBalance: AddressBalanceResult | FlowBalanceResult | undefined;
       let allPositiveBalances: (AddressBalanceResult | FlowBalanceResult)[] = [];
       let wordCountVal: number;
@@ -108,20 +110,15 @@ export default function Home() {
       if (isFromFlow) {
         const flowItem = item as FlowSingleSeedPhraseResult;
         itemBalances = flowItem.balances || []; 
-        allPositiveBalances = itemBalances.filter(b => b.balance > 0); // Balances are already positive from flow
+        allPositiveBalances = itemBalances.filter(b => b.balance > 0);
         wordCountVal = flowItem.wordCount;
-        // 'error' in flowItem already assigned to itemError
-        // 'derivationError' in flowItem already assigned to itemDerivationError
       } else { 
         const actionItem = item as ProcessedWalletInfo;
-        itemBalances = actionItem.balanceData || []; // balanceData is already filtered for positive, real balances
+        itemBalances = actionItem.balanceData || [];
         allPositiveBalances = itemBalances;
         wordCountVal = actionItem.seedPhrase.split(' ').length;
-         // 'error' in actionItem already assigned to itemError
-        // 'derivationError' in actionItem already assigned to itemDerivationError
       }
       
-      // Filter out items with derivation errors or general errors if no positive balance
       if (itemDerivationError) {
         addLogMessage(`Skipping item with derivation error: ${maskValue(item.seedPhrase, 4, 4)}`);
         return null;
@@ -130,12 +127,10 @@ export default function Home() {
           addLogMessage(`Skipping item with error and no positive balance: ${maskValue(item.seedPhrase, 4,4)}`);
           return null;
       }
-      // Filter out items with no positive balances
       if(allPositiveBalances.length === 0) {
         addLogMessage(`Skipping item with no positive balance: ${maskValue(item.seedPhrase, 4,4)}`);
         return null;
       }
-
 
       firstRealPositiveBalance = allPositiveBalances.length > 0 ? allPositiveBalances[0] : undefined;
 
@@ -201,8 +196,6 @@ export default function Home() {
         return [12, 15, 18, 21, 24].includes(wordCount);
     });
 
-    // Set initial loading state for valid phrases.
-    // Actual display will be determined by `processSeedPhrasesAndFetchBalances` only returning non-empty wallets.
     const initialLoadingResults = validPhrases.map((phrase) => ({
         seedPhrase: phrase,
         derivedAddress: null,
@@ -210,15 +203,13 @@ export default function Home() {
         balanceData: [], 
         error: null,
         derivationError: null,
-        isLoading: true, // This will be updated once results come back
+        isLoading: true, 
         wordCount: phrase.split(' ').length,
         displayCryptoName: null,
         displayBalance: null,
         displayDataSource: null,
         numOtherBalances: 0,
       }));
-    // We don't set results to loading immediately, instead we'll show results as they come.
-    // setResults(initialLoadingResults); // Optionally show loading indicators
 
     try {
       const processedDataFromAction = await processSeedPhrasesAndFetchBalances(
@@ -230,7 +221,6 @@ export default function Home() {
       );
       
       const finalResults = processAndSetDisplayBalances(processedDataFromAction, false);
-      // Backend actions already filter for non-empty. Frontend filter is a safeguard / display choice.
       const displayableResults = finalResults.filter(r => r.displayBalance && r.displayBalance > 0 && !r.derivationError && !(r.error && (!r.balanceData || r.balanceData.length === 0)));
       
       setResults(displayableResults);
@@ -255,7 +245,6 @@ export default function Home() {
         description: `An unexpected error occurred: ${error.message}. Some results might be incomplete.`,
         variant: 'destructive',
       });
-       // Clear loading state for any phrases that might have been set to loading
        setResults(prevResults => prevResults.map(r => ({ ...r, isLoading: false, error: r.isLoading ? (r.error || "Overall process failed") : r.error })).filter(r => r.displayBalance && r.displayBalance > 0 && !r.derivationError && !(r.error && (!r.balanceData || r.balanceData.length === 0))));
     }
 
@@ -284,7 +273,7 @@ export default function Home() {
 
       const generatedDataFromFlow: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
       
-      if (!generatedDataFromFlow) { // Handles null from flow execution error
+      if (!generatedDataFromFlow) { 
           console.error("Genkit Flow Execution Error: Returned null");
           addLogMessage(`Manual generation error: Genkit flow failed and returned null.`);
           toast({
@@ -297,7 +286,6 @@ export default function Home() {
       }
       
       const processedResults = processAndSetDisplayBalances(generatedDataFromFlow, true);
-      // Backend (flow) already filters for non-empty. Frontend filter is a safeguard/display choice.
       const actualFoundResults = processedResults.filter(r => r.displayBalance && r.displayBalance > 0 && !r.derivationError && !(r.error && (!r.balanceData || r.balanceData.length === 0)));
       
       addLogMessage(`Manual generation: Received ${actualFoundResults.length} phrases with balance from ${numSeedPhrasesToGenerateRef.current} generated.`);
@@ -342,6 +330,7 @@ export default function Home() {
     setIsAutoGenerating(false);
     setIsAutoGenerationPaused(false);
     setCurrentGenerationStatus('Stopped');
+    setPhrasesInBatchDisplay(0); 
 
     isAutoGeneratingRef.current = false;
     isAutoGenerationPausedRef.current = false;
@@ -357,6 +346,7 @@ export default function Home() {
     addLogMessage('Pausing automatic seed phrase generation.');
     setIsAutoGenerationPaused(true);
     setCurrentGenerationStatus('Paused');
+    // phrasesInBatchDisplay will retain the value of the current batch
 
     isAutoGenerationPausedRef.current = true;
 
@@ -370,12 +360,18 @@ export default function Home() {
   const runAutoGenerationStep = useCallback(async () => {
     if (!isAutoGeneratingRef.current || isAutoGenerationPausedRef.current) {
       setCurrentGenerationStatus(isAutoGenerationPausedRef.current ? 'Paused' : 'Stopped');
+      if (isAutoGenerationPausedRef.current === false) { // If stopped, not just paused
+          setPhrasesInBatchDisplay(0);
+      }
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
       return;
     }
     
     setCurrentGenerationStatus('Running'); 
+    const currentNumToGenerate = numSeedPhrasesToGenerateRef.current > 0 ? numSeedPhrasesToGenerateRef.current : 1;
+    setPhrasesInBatchDisplay(currentNumToGenerate);
+
 
     if (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current && !blockstreamApiKeyInputRef.current) {
       addLogMessage('Auto-generation stopped: At least one API key is required to check real balances.');
@@ -388,8 +384,7 @@ export default function Home() {
       return;
     }
 
-    const currentNumToGenerate = numSeedPhrasesToGenerateRef.current > 0 ? numSeedPhrasesToGenerateRef.current : 1;
-    addLogMessage(`Generating batch of ${currentNumToGenerate} seed phrases... (Total checked: ${checkedPhrasesCount})`);
+    addLogMessage(`Generating batch of ${currentNumToGenerate} seed phrases... (Session total: ${checkedPhrasesCount})`);
     let processedResultsFromFlow = [];
     try {
       const input: GenerateAndCheckSeedPhrasesInput = {
@@ -402,7 +397,7 @@ export default function Home() {
 
       const generatedDataFromFlow: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
       
-      if (!generatedDataFromFlow) { // Handles null from flow execution error
+      if (!generatedDataFromFlow) { 
           console.error("Genkit Flow Execution Error (Auto-Gen): Returned null");
           addLogMessage(`Auto-generation error: Genkit flow failed and returned null. Pausing.`);
           toast({
@@ -415,14 +410,15 @@ export default function Home() {
       }
       
       processedResultsFromFlow = processAndSetDisplayBalances(generatedDataFromFlow, true); 
-      // Backend (flow) already filters for non-empty. Frontend filter is a safeguard/display choice.
       const actualFoundResults = processedResultsFromFlow.filter(r => r.displayBalance && r.displayBalance > 0 && !r.derivationError && !(r.error && (!r.balanceData || r.balanceData.length === 0)));
             
-      setCheckedPhrasesCount(prevCount => prevCount + currentNumToGenerate);
+      setCheckedPhrasesCount(prevCount => prevCount + currentNumToGenerate); // Update cumulative session count
       
       if (actualFoundResults.length > 0) {
         setResults(prevResults => [...actualFoundResults, ...prevResults].slice(0, MAX_DISPLAYED_RESULTS));
-        addLogMessage(`Found ${actualFoundResults.length} wallet(s) with balance in this batch. Results updated.`);
+        addLogMessage(`Processed batch of ${currentNumToGenerate}. Found ${actualFoundResults.length} wallet(s) with balance. Session total: ${checkedPhrasesCount + currentNumToGenerate}. Results updated.`);
+      } else {
+        addLogMessage(`Processed batch of ${currentNumToGenerate}. No wallets with balance found. Session total: ${checkedPhrasesCount + currentNumToGenerate}.`);
       }
 
     } catch (error: any) {
@@ -437,7 +433,7 @@ export default function Home() {
              addLogMessage("Attempting to resume auto-generation after rate limit pause.");
              setIsAutoGenerationPaused(false);
              isAutoGenerationPausedRef.current = false;
-             if (timeoutRef.current === null) { // Check if it wasn't cleared by stop
+             if (timeoutRef.current === null) { 
                 runAutoGenerationStep();
              }
           }
@@ -460,6 +456,9 @@ export default function Home() {
       timeoutRef.current = setTimeout(runAutoGenerationStep, delay); 
     } else {
        setCurrentGenerationStatus(isAutoGenerationPausedRef.current ? 'Paused' : 'Stopped');
+       if (!isAutoGenerationPausedRef.current) { // Explicitly stopped
+            setPhrasesInBatchDisplay(0);
+       }
        if (timeoutRef.current) clearTimeout(timeoutRef.current);
        timeoutRef.current = null;
     }
@@ -468,10 +467,15 @@ export default function Home() {
 
   const startAutoGenerating = useCallback(() => {
     const wasPaused = isAutoGenerationPausedRef.current;
+    const currentBatchSizeSetting = numSeedPhrasesToGenerateRef.current > 0 ? numSeedPhrasesToGenerateRef.current : 1;
+
     if (!isAutoGeneratingRef.current || wasPaused) {
         addLogMessage(wasPaused ? 'Resuming automatic seed phrase generation...' : 'Starting automatic seed phrase generation...');
-        if (!wasPaused) setCheckedPhrasesCount(0); 
+        if (!wasPaused) {
+            setCheckedPhrasesCount(0); // Reset cumulative session count on a fresh start
+        }
     }
+    setPhrasesInBatchDisplay(currentBatchSizeSetting);
     
     setIsAutoGenerating(true);
     setIsAutoGenerationPaused(false); 
@@ -489,8 +493,8 @@ export default function Home() {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
-      isAutoGeneratingRef.current = false; // Ensure cleanup
-      isAutoGenerationPausedRef.current = false; // Ensure cleanup
+      isAutoGeneratingRef.current = false; 
+      isAutoGenerationPausedRef.current = false;
     };
   }, []);
 
@@ -840,8 +844,8 @@ export default function Home() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="text-center">
-            <p className="text-sm text-muted-foreground mb-1">PHRASES CHECKED THIS SESSION</p>
-            <p className="text-5xl font-bold mb-2 text-primary">{checkedPhrasesCount}</p>
+            <p className="text-sm text-muted-foreground mb-1">PHRASES IN CURRENT BATCH</p>
+            <p className="text-5xl font-bold mb-2 text-primary">{phrasesInBatchDisplay}</p>
             <p className="text-lg font-semibold">
               Status: <span
                 className={`font-bold ${
@@ -1047,4 +1051,4 @@ export default function Home() {
 
     
 
-
+    

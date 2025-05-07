@@ -1,3 +1,4 @@
+
 // @ts-nocheck
 'use client';
 
@@ -21,17 +22,17 @@ import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { processSeedPhrasesAndFetchBalances, type ProcessedWalletInfo, type AddressBalanceResult } from './actions';
-import { generateAndCheckSeedPhrases, type GenerateAndCheckSeedPhrasesOutput, type GenerateAndCheckSeedPhrasesInput, type SingleSeedPhraseResultSchema as FlowSingleSeedPhraseResultSchema } from '@/ai/flows/random-seed-phrase'; // Adjusted import for clarity
+import { generateAndCheckSeedPhrases, type GenerateAndCheckSeedPhrasesOutput, type GenerateAndCheckSeedPhrasesInput, type SingleSeedPhraseResult as FlowSingleSeedPhraseResult, type FlowBalanceResult } from '@/ai/flows/random-seed-phrase';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 
 interface ResultRow extends Omit<ProcessedWalletInfo, 'balanceData' | 'cryptoName'> {
   isLoading: boolean;
   wordCount?: number;
-  balanceData: AddressBalanceResult[] | null; 
+  balanceData: AddressBalanceResult[] | FlowBalanceResult[] | null; 
   displayCryptoName?: string | null; 
   displayBalance?: number | null;
-  displayDataSource?: AddressBalanceResult['dataSource'] | null;
+  displayDataSource?: AddressBalanceResult['dataSource'] | FlowBalanceResult['dataSource'] | null;
   numOtherBalances?: number; 
 }
 
@@ -92,27 +93,20 @@ export default function Home() {
 
   const processAndSetDisplayBalances = (data: ProcessedWalletInfo[] | GenerateAndCheckSeedPhrasesOutput, isFromFlow: boolean = false): ResultRow[] => {
     return data.map(item => {
-      let firstRealPositiveBalance: AddressBalanceResult | undefined;
-      let allPositiveBalances: AddressBalanceResult[] = [];
+      let firstRealPositiveBalance: AddressBalanceResult | FlowBalanceResult | undefined;
+      let allPositiveBalances: (AddressBalanceResult | FlowBalanceResult)[] = [];
       let wordCountVal: number;
       let itemBalances: any[] = []; 
 
       if (isFromFlow) {
-        const flowItem = item as FlowSingleSeedPhraseResultSchema;
-        itemBalances = flowItem.balances || [];
-        allPositiveBalances = itemBalances
-            .filter(b => b.balance > 0)
-            .map(b => ({
-                address: flowItem.derivedAddress,
-                balance: b.balance,
-                currency: b.cryptoName,
-                isRealData: ['Etherscan API', 'BlockCypher API', 'Alchemy API', 'Blockstream API'].includes(b.dataSource),
-                dataSource: b.dataSource as AddressBalanceResult['dataSource'],
-            }));
+        const flowItem = item as FlowSingleSeedPhraseResult;
+        itemBalances = flowItem.balances || []; // This is already FlowBalanceResult[]
+        // Filter for positive balances (no need to check isRealData as flow output already filters for it)
+        allPositiveBalances = itemBalances.filter(b => b.balance > 0);
         wordCountVal = flowItem.wordCount;
       } else { 
         const actionItem = item as ProcessedWalletInfo;
-        itemBalances = actionItem.balanceData || [];
+        itemBalances = actionItem.balanceData || []; // This is AddressBalanceResult[]
         allPositiveBalances = itemBalances.filter(bal => bal.balance > 0 && bal.isRealData);
         wordCountVal = actionItem.seedPhrase.split(' ').length;
       }
@@ -123,20 +117,14 @@ export default function Home() {
         seedPhrase: item.seedPhrase,
         derivedAddress: item.derivedAddress,
         walletType: item.walletType,
-        balanceData: itemBalances.map(b => ({ 
-             address: item.derivedAddress,
-             balance: b.balance,
-             currency: item.currency || b.cryptoName, // Corrected: was item.cryptoName, ensure `b` is used for flow items
-             isRealData: item.isRealData !== undefined ? item.isRealData : ['Etherscan API', 'BlockCypher API', 'Alchemy API', 'Blockstream API'].includes(b.dataSource), // Ensure `b` is used for flow items
-             dataSource: b.dataSource as AddressBalanceResult['dataSource'], // Ensure `b` is used for flow items
-        })),
+        balanceData: itemBalances, // This will be either AddressBalanceResult[] or FlowBalanceResult[]
         error: item.error || null,
         derivationError: item.derivationError || null,
         isLoading: false,
         wordCount: wordCountVal,
-        displayCryptoName: firstRealPositiveBalance?.currency,
+        displayCryptoName: firstRealPositiveBalance?.currency, // Use .currency for flow items as well
         displayBalance: firstRealPositiveBalance?.balance,
-        displayDataSource: firstRealPositiveBalance?.dataSource,
+        displayDataSource: firstRealPositiveBalance?.dataSource as AddressBalanceResult['dataSource'] | FlowBalanceResult['dataSource'],
         numOtherBalances: allPositiveBalances.length > 1 ? allPositiveBalances.length - 1 : 0,
       };
     });
@@ -214,11 +202,13 @@ export default function Home() {
       );
       
       const finalResults = processAndSetDisplayBalances(processedDataFromAction, false);
-      setResults(finalResults);
+      // Filter final results to only include those with positive balances or errors, as per flow's logic
+      const displayableResults = finalResults.filter(r => (r.displayBalance && r.displayBalance > 0) || r.error || r.derivationError);
+      setResults(displayableResults);
 
 
       let toastMessage = `Finished processing ${phrases.length} seed phrases. `;
-      toastMessage += `Found ${finalResults.length} wallet(s) with at least one non-zero balance.`;
+      toastMessage += `Found ${displayableResults.filter(r => r.displayBalance && r.displayBalance > 0).length} wallet(s) with at least one non-zero balance.`;
       
       if (!hasEtherscanKey && !hasBlockcypherKey && !hasAlchemyKey && !hasBlockstreamKey && phrases.length > 0) {
         toastMessage += ' No API keys were provided, so no real balances could be fetched.';
@@ -263,6 +253,7 @@ export default function Home() {
       };
 
       const generatedDataFromFlow: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
+      // The flow already filters for positive balances, so no need for extra filtering here.
       const processedResults = processAndSetDisplayBalances(generatedDataFromFlow, true);
       
       addLogMessage(`Manual generation: Received ${processedResults.length} phrases with balance from ${numSeedPhrasesToGenerateRef.current} generated.`);
@@ -335,6 +326,7 @@ export default function Home() {
       };
 
       const generatedDataFromFlow: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
+      // The flow now only returns results with positive balances
       processedResultsFromFlow = processAndSetDisplayBalances(generatedDataFromFlow, true); 
             
       setCheckedPhrasesCount(prevCount => prevCount + currentNumToGenerate);
@@ -347,15 +339,19 @@ export default function Home() {
     } catch (error: any) {
       console.error("Error during automatic seed phrase generation batch:", error);
       addLogMessage(`Error in generation batch: ${error.message}`);
-       if (error.message?.includes("rate limit") || error.message?.includes("API key quota exceeded") || error.message?.includes("blocked")) {
+       if (error.message?.includes("rate limit") || error.message?.includes("API key quota exceeded") || error.message?.includes("blocked") || error.status === 429) {
         addLogMessage("Rate limit or block likely hit. Pausing generation for 1 minute.");
-        pauseAutoGenerating();
+        pauseAutoGenerating(); // This will set isAutoGenerationPausedRef.current = true
+        // Clear existing timeout before setting a new one for resume
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
         timeoutRef.current = setTimeout(() => {
+          // Only resume if it was PAUSED by this rate limit logic and STILL auto-generating conceptually
           if(isAutoGeneratingRef.current && isAutoGenerationPausedRef.current) { 
              addLogMessage("Attempting to resume auto-generation after rate limit pause.");
-             startAutoGenerating(); 
+             startAutoGenerating(); // This will set isAutoGenerationPausedRef.current = false
           }
         }, 60000); 
+        return; // Important: exit to prevent immediate re-queue if rate limit occurred
       }
     }
 
@@ -367,24 +363,25 @@ export default function Home() {
        if (timeoutRef.current) clearTimeout(timeoutRef.current);
        timeoutRef.current = null;
     }
-  }, [addLogMessage, checkedPhrasesCount, toast, processAndSetDisplayBalances]);
+  }, [addLogMessage, checkedPhrasesCount, toast, processAndSetDisplayBalances, stopAutoGenerating, pauseAutoGenerating, startAutoGenerating]);
 
   const startAutoGenerating = () => {
     const wasPaused = isAutoGenerationPausedRef.current;
     if (!isAutoGeneratingRef.current || wasPaused) {
         addLogMessage(wasPaused ? 'Resuming automatic seed phrase generation...' : 'Starting automatic seed phrase generation...');
-        if (!wasPaused) setCheckedPhrasesCount(0);
+        if (!wasPaused) setCheckedPhrasesCount(0); // Reset count only if starting fresh
     }
     
     setIsAutoGenerating(true);
     setIsAutoGenerationPaused(false); 
     setCurrentGenerationStatus('Running');
     
+    // Critical: Ensure refs are updated immediately for the runAutoGenerationStep callback
     isAutoGeneratingRef.current = true;
     isAutoGenerationPausedRef.current = false;
 
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    runAutoGenerationStep();
+    if (timeoutRef.current) clearTimeout(timeoutRef.current); // Clear any existing timeout
+    runAutoGenerationStep(); // Start the loop
   };
 
   const pauseAutoGenerating = () => {
@@ -392,7 +389,10 @@ export default function Home() {
     addLogMessage('Pausing automatic seed phrase generation.');
     setIsAutoGenerationPaused(true); 
     setCurrentGenerationStatus('Paused');
+
+    // Critical: Ensure ref is updated
     isAutoGenerationPausedRef.current = true; 
+    
      if (timeoutRef.current) { 
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
@@ -400,12 +400,13 @@ export default function Home() {
   };
 
   const stopAutoGenerating = () => {
-    if (!isAutoGeneratingRef.current) return;
+    if (!isAutoGeneratingRef.current) return; // Don't do anything if not running
     addLogMessage('Stopped automatic seed phrase generation.');
     setIsAutoGenerating(false);
     setIsAutoGenerationPaused(false); 
     setCurrentGenerationStatus('Stopped');
     
+    // Critical: Ensure refs are updated
     isAutoGeneratingRef.current = false;
     isAutoGenerationPausedRef.current = false;
 
@@ -416,22 +417,26 @@ export default function Home() {
   };
   
   useEffect(() => {
+    // Cleanup function to clear timeout when component unmounts
     return () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
+      // Ensure generation is stopped if component unmounts while running
+      isAutoGeneratingRef.current = false;
+      isAutoGenerationPausedRef.current = false;
     };
   }, []);
 
   const getCurrencyIcon = (currencySymbol: string | null | undefined) => {
     if (!currencySymbol) return '?';
     const upperSymbol = currencySymbol.toUpperCase();
-    if (upperSymbol.includes('ETH')) return 'Ξ';
+    if (upperSymbol.includes('ETH') || upperSymbol === 'ARBITRUM' || upperSymbol === 'OPTIMISM' || upperSymbol === 'BASE') return 'Ξ';
     if (upperSymbol.includes('BTC')) return <Bitcoin className="h-3 w-3"/>;
     if (upperSymbol.includes('LTC')) return 'Ł';
     if (upperSymbol.includes('DOGE')) return 'Ð';
     if (upperSymbol.includes('DASH')) return 'D';
-    if (upperSymbol.includes('MATIC')) return 'MATIC'.charAt(0); 
+    if (upperSymbol.includes('MATIC')) return 'MATIC'.charAt(0); // Or a more specific Matic icon if available
     return currencySymbol.charAt(0).toUpperCase();
   };
 
@@ -458,7 +463,7 @@ export default function Home() {
     }
   };
 
-  const getDataSourceTag = (dataSource: AddressBalanceResult['dataSource'] | undefined | null) => {
+  const getDataSourceTag = (dataSource: AddressBalanceResult['dataSource'] | FlowBalanceResult['dataSource'] | undefined | null) => {
     switch (dataSource) {
       case 'Etherscan API':
         return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-green-100 text-green-800 dark:bg-green-800/30 dark:text-green-300">Etherscan</span>;
@@ -836,10 +841,10 @@ export default function Home() {
           <CardHeader>
             <CardTitle>Balance Results (Wallets with Real Positive Balance)</CardTitle>
             <CardDescription>
-              Etherscan API (masked): {etherscanApiKeyInputRef.current?.trim() ? maskValue(etherscanApiKeyInputRef.current, 4, 4) : 'N/A'}.
-              BlockCypher API (masked): {blockcypherApiKeyInputRef.current?.trim() ? maskValue(blockcypherApiKeyInputRef.current, 4, 4) : 'N/A'}.
-              Alchemy API (masked): {alchemyApiKeyInputRef.current?.trim() ? maskValue(alchemyApiKeyInputRef.current, 4, 4) : 'N/A'}.
-              Blockstream API (masked): {blockstreamApiKeyInputRef.current?.trim() ? maskValue(blockstreamApiKeyInputRef.current, 4, 4) : 'N/A (Public API)'}.
+              Etherscan API (masked): {etherscanApiKeyInputRef.current?.trim() ? maskValue(etherscanApiKeyInputRef.current, 4, 4) : 'N/A'}.&nbsp;
+              BlockCypher API (masked): {blockcypherApiKeyInputRef.current?.trim() ? maskValue(blockcypherApiKeyInputRef.current, 4, 4) : 'N/A'}.&nbsp;
+              Alchemy API (masked): {alchemyApiKeyInputRef.current?.trim() ? maskValue(alchemyApiKeyInputRef.current, 4, 4) : 'N/A'}.&nbsp;
+              Blockstream API (masked): {blockstreamApiKeyInputRef.current?.trim() ? maskValue(blockstreamApiKeyInputRef.current, 4, 4) : 'N/A (Public API)'}.&nbsp;
               Displaying up to {MAX_DISPLAYED_RESULTS} results with at least one non-zero balance from a real API (newest first). 
               Showing first asset found; others indicated by (+X).
             </CardDescription>
@@ -949,10 +954,10 @@ export default function Home() {
                           <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full bg-green-500/20 text-green-700 dark:text-green-400 text-[10px] font-bold shrink-0`}>
                             {getCurrencyIcon(result.displayCryptoName)}
                           </span>
-                          {result.displayBalance.toFixed(result.displayCryptoName?.toUpperCase() === 'BTC' ? 8 : 6)}{' '}
+                          {result.displayBalance.toFixed(result.displayCryptoName?.toUpperCase() === 'BTC' ? 8 : (result.displayCryptoName?.toUpperCase() === 'ETH' || result.displayCryptoName?.toUpperCase() === 'MATIC' || result.displayCryptoName?.toUpperCase() === 'ARBITRUM' || result.displayCryptoName?.toUpperCase() === 'OPTIMISM' || result.displayCryptoName?.toUpperCase() === 'BASE' ? 6 : 4) )}{' '}
                           <span className="text-muted-foreground text-[10px] shrink-0">{result.displayCryptoName?.split(' ')[0]}</span>
                         </span>
-                      ) : !result.isLoading && result.balanceData && result.balanceData.length > 0 && result.balanceData.every(b => b.balance === 0) ? (
+                      ) : !result.isLoading && result.balanceData && Array.isArray(result.balanceData) && result.balanceData.length > 0 && result.balanceData.every(b => b.balance === 0) ? (
                          <span className="text-muted-foreground text-xs">0.000000 {result.displayCryptoName !== 'N/A' ? result.displayCryptoName?.split(' ')[0] : ''}</span>
                       ): result.error && !result.derivationError ? (
                         <span className="text-destructive text-xs italic">Fetch Error</span>

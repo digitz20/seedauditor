@@ -1,4 +1,3 @@
-
 // @ts-nocheck
 'use client';
 
@@ -412,6 +411,7 @@ export default function Home() {
       processedResultsFromFlow = processAndSetDisplayBalances(generatedDataFromFlow, true); 
       const actualFoundResults = processedResultsFromFlow.filter(r => r.displayBalance && r.displayBalance > 0 && !r.derivationError && !(r.error && (!r.balanceData || r.balanceData.length === 0)));
             
+      //CHECKED_PHRASES_COUNT IS INCREMENTED HERE
       setCheckedPhrasesCount(prevCount => prevCount + currentNumToGenerate); // Update cumulative session count
       
       if (actualFoundResults.length > 0) {

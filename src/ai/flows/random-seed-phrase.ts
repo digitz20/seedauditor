@@ -91,13 +91,24 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
       const walletType: string | null = "EVM (Ethereum-compatible)";
       const collectedApiBalances: AddressBalanceResult[] = [];
       let hasApiError = false;
+      let derivationError: string | undefined = undefined;
 
       try {
         const wallet = ethers.Wallet.fromPhrase(phrase);
         derivedAddress = wallet.address;
       } catch (e: any) {
         console.error(`Flow: Error deriving wallet from seed phrase "${phrase.substring(0,20)}...": ${e.message}`);
-        continue;
+        derivationError = `Derivation failed: ${e.message}`;
+        // Don't continue to API calls if derivation failed
+        flowResults.push({
+          seedPhrase: phrase,
+          wordCount,
+          derivedAddress: null,
+          walletType: null,
+          balances: [],
+          derivationError: derivationError,
+        });
+        continue; 
       }
 
       if (derivedAddress) {
@@ -136,6 +147,7 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
           isRealData: b.isRealData,
         }));
 
+      // Only add to results if there are positive balances
       if (positiveRealFlowBalances.length > 0) {
         flowResults.push({
           seedPhrase: phrase,
@@ -144,9 +156,10 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
           walletType,
           balances: positiveRealFlowBalances,
           error: hasApiError ? 'Positive balance(s) found, but some API calls may have failed for other assets.' : undefined,
+          derivationError: undefined, // Explicitly undefined if no derivation error
         });
       } else {
-         console.log(`Flow: No positive balances found for seed phrase "${phrase.substring(0,20)}..." (Address: ${derivedAddress}). API errors: ${hasApiError}. Skipping.`);
+         console.log(`Flow: No positive balances found for seed phrase "${phrase.substring(0,20)}..." (Address: ${derivedAddress}). API errors: ${hasApiError}. Derivation error: ${derivationError || 'None'}. Skipping.`);
       }
     }
     return flowResults.length > 0 ? flowResults : []; 
@@ -165,3 +178,4 @@ export async function generateAndCheckSeedPhrases(
     return null;
   }
 }
+

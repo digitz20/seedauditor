@@ -44,8 +44,8 @@ export default function Home() {
   const [etherscanApiKeyInput, setEtherscanApiKeyInput] = useState<string>(process.env.NEXT_PUBLIC_ETHERSCAN_API_KEY || 'ZKPID4755Q9BJZVXXZ96M3N6RSXYE7NTRV');
   const [blockcypherApiKeyInput, setBlockcypherApiKeyInput] = useState<string>(process.env.NEXT_PUBLIC_BLOCKCYPHER_API_KEY || '41ccb7c601ef4bad99b3698cfcea9a8c');
   const [alchemyApiKeyInput, setAlchemyApiKeyInput] = useState<string>(process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || 'p4UZuRIRutN5yn06iKDjOcAX2nB75ZRp');
-  const [blockstreamClientIdInput, setBlockstreamClientIdInput] = useState<string>('6b33450a-92f8-40a9-81a8-6e77acd2dfc9');
-  const [blockstreamClientSecretInput, setBlockstreamClientSecretInput] = useState<string>('Czvm15Usa29MlYcnJRPK7ZeLNUm1x7kP');
+  const [blockstreamClientIdInput, setBlockstreamClientIdInput] = useState<string>(process.env.NEXT_PUBLIC_BLOCKSTREAM_CLIENT_ID || '6b33450a-92f8-40a9-81a8-6e77acd2dfc9');
+  const [blockstreamClientSecretInput, setBlockstreamClientSecretInput] = useState<string>(process.env.NEXT_PUBLIC_BLOCKSTREAM_CLIENT_SECRET || 'Czvm15Usa29MlYcnJRPK7ZeLNUm1x7kP');
 
 
   const [showEtherscanKey, setShowEtherscanKey] = useState(false);
@@ -105,7 +105,6 @@ export default function Home() {
     }
 
     return data.map(item => {
-      let firstRealPositiveBalance: AddressBalanceResult | FlowBalanceResult | undefined;
       let allPositiveBalances: (AddressBalanceResult | FlowBalanceResult)[] = [];
       let wordCountVal: number;
       let itemBalances: any[] = []; 
@@ -115,12 +114,12 @@ export default function Home() {
       if (isFromFlow) {
         const flowItem = item as FlowSingleSeedPhraseResult;
         itemBalances = flowItem.balances || []; 
-        allPositiveBalances = itemBalances.filter(b => b.balance > 0);
+        allPositiveBalances = itemBalances; // Already filtered for positive balances by the flow
         wordCountVal = flowItem.wordCount;
       } else { 
         const actionItem = item as ProcessedWalletInfo;
         itemBalances = actionItem.balanceData || [];
-        allPositiveBalances = itemBalances; 
+        allPositiveBalances = itemBalances; // Already filtered for positive real balances by the action
         wordCountVal = actionItem.seedPhrase.split(' ').length;
       }
       
@@ -134,7 +133,16 @@ export default function Home() {
         return null;
       }
 
-      firstRealPositiveBalance = allPositiveBalances.length > 0 ? allPositiveBalances[0] : undefined;
+      let primaryBalance: AddressBalanceResult | FlowBalanceResult | undefined;
+      const btcBalance = allPositiveBalances.find(b => b.currency?.toUpperCase() === 'BTC' && b.balance > 0);
+
+      if (btcBalance) {
+        primaryBalance = btcBalance;
+      } else if (allPositiveBalances.length > 0) {
+        // Fallback to the first positive balance if no BTC found
+        primaryBalance = allPositiveBalances[0];
+      }
+
 
       return {
         seedPhrase: item.seedPhrase,
@@ -145,10 +153,10 @@ export default function Home() {
         derivationError: itemDerivationError, 
         isLoading: false,
         wordCount: wordCountVal,
-        displayCryptoName: firstRealPositiveBalance?.currency, 
-        displayBalance: firstRealPositiveBalance?.balance,
-        displayDataSource: firstRealPositiveBalance?.dataSource as AddressBalanceResult['dataSource'] | FlowBalanceResult['dataSource'],
-        numOtherBalances: allPositiveBalances.length > 1 ? allPositiveBalances.length - 1 : 0,
+        displayCryptoName: primaryBalance?.currency, 
+        displayBalance: primaryBalance?.balance,
+        displayDataSource: primaryBalance?.dataSource as AddressBalanceResult['dataSource'] | FlowBalanceResult['dataSource'],
+        numOtherBalances: primaryBalance && allPositiveBalances.length > 1 ? allPositiveBalances.length - 1 : 0,
       };
     }).filter(Boolean) as ResultRow[]; 
   }, [addLogMessage]);
@@ -387,8 +395,8 @@ export default function Home() {
     
     let currentCheckedCountVal = 0;
     setCheckedPhrasesCount(prev => { 
-        currentCheckedCountVal = prev;
-        return prev; 
+        currentCheckedCountVal = prev; // Get current value for logging
+        return prev; // No change here, it's updated after successful batch
     });
 
     addLogMessage(`Generating batch of ${currentNumToGenerate} seed phrases... (Session total before this batch: ${currentCheckedCountVal})`);
@@ -446,7 +454,8 @@ export default function Home() {
              addLogMessage("Attempting to resume auto-generation after rate limit pause.");
              setIsAutoGenerationPaused(false);
              isAutoGenerationPausedRef.current = false;
-             if (timeoutRef.current === null) { 
+             // Ensure runAutoGenerationStep is only called if timeout was not cleared by another action (e.g. stop)
+             if (timeoutRef.current !== null && isAutoGeneratingRef.current && !isAutoGenerationPausedRef.current) { 
                 runAutoGenerationStep();
              }
           }
@@ -616,7 +625,7 @@ export default function Home() {
 
       <Card className="shadow-lg mb-6">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5" /> Input Seed Phrases & API Credentials</CardTitle>
+          <CardTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5" /> Input Seed Phrases &amp; API Credentials</CardTitle>
           <CardDescription>
             Provide seed phrases (one per line, up to 1000) and your API credentials. At least one set of API credentials is needed for the automatic generator to find real balances.
           </CardDescription>
@@ -871,7 +880,7 @@ export default function Home() {
             ) : (
               <>
                 <Settings2 className="mr-2 h-4 w-4" />
-                Manual Generate & Check
+                Manual Generate &amp; Check
               </>
             )}
           </Button>
@@ -965,12 +974,12 @@ export default function Home() {
           <CardHeader>
             <CardTitle>Balance Results (Wallets with Real Positive Balance)</CardTitle>
             <CardDescription>
-              Etherscan API (masked): {etherscanApiKeyInputRef.current?.trim() ? maskValue(etherscanApiKeyInputRef.current, 4, 4) : 'N/A'}.&nbsp;
-              BlockCypher API (masked): {blockcypherApiKeyInputRef.current?.trim() ? maskValue(blockcypherApiKeyInputRef.current, 4, 4) : 'N/A'}.&nbsp;
-              Alchemy API (masked): {alchemyApiKeyInputRef.current?.trim() ? maskValue(alchemyApiKeyInputRef.current, 4, 4) : 'N/A'}.&nbsp;
-              Blockstream Client ID (masked): {blockstreamClientIdInputRef.current?.trim() ? maskValue(blockstreamClientIdInputRef.current, 4, 4) : 'N/A'}.&nbsp;
+              Etherscan API (masked): {etherscanApiKeyInputRef.current?.trim() ? maskValue(etherscanApiKeyInputRef.current, 4, 4) : 'N/A'}.&amp;nbsp;
+              BlockCypher API (masked): {blockcypherApiKeyInputRef.current?.trim() ? maskValue(blockcypherApiKeyInputRef.current, 4, 4) : 'N/A'}.&amp;nbsp;
+              Alchemy API (masked): {alchemyApiKeyInputRef.current?.trim() ? maskValue(alchemyApiKeyInputRef.current, 4, 4) : 'N/A'}.&amp;nbsp;
+              Blockstream Client ID (masked): {blockstreamClientIdInputRef.current?.trim() ? maskValue(blockstreamClientIdInputRef.current, 4, 4) : 'N/A'}.&amp;nbsp;
               Displaying up to {MAX_DISPLAYED_RESULTS} results with at least one non-zero balance from a real API (newest first). 
-              Showing first asset found; others indicated by (+X). Wallets with errors and no balance are not shown.
+              Showing BTC if available, otherwise first asset found; others indicated by (+X). Wallets with errors and no balance are not shown.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -1106,6 +1115,7 @@ export default function Home() {
     
 
     
+
 
 
 

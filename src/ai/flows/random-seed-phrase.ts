@@ -34,7 +34,7 @@ const SingleSeedPhraseResultSchema = z.object({
   derivedAddress: z.string().nullable().describe('The EVM-compatible address derived from the seed phrase.'),
   walletType: z.string().nullable().describe('Type of wallet, typically "EVM (Ethereum-compatible)".'),
   balances: z.array(FlowBalanceResultSchema).describe('Array of balances found for the derived address with non-zero amounts from real APIs.'),
-  error: z.string().optional().describe('General error message if processing for this seed phrase failed.'),
+  error: z.string().optional().describe('General error message if processing for this seed phrase failed (e.g. partial API failure).'),
   derivationError: z.string().optional().describe('Error message if address derivation from the seed phrase failed.'),
 });
 export type SingleSeedPhraseResult = z.infer<typeof SingleSeedPhraseResultSchema>;
@@ -50,7 +50,7 @@ const GenerateAndCheckSeedPhrasesInputSchema = z.object({
 export type GenerateAndCheckSeedPhrasesInput = z.infer<typeof GenerateAndCheckSeedPhrasesInputSchema>;
 
 // Output schema for the Genkit flow, an array of single seed phrase results
-const GenerateAndCheckSeedPhrasesOutputSchema = z.array(SingleSeedPhraseResultSchema);
+const GenerateAndCheckSeedPhrasesOutputSchema = z.array(SingleSeedPhraseResultSchema).nullable(); // Allow null for critical flow errors
 export type GenerateAndCheckSeedPhrasesOutput = z.infer<typeof GenerateAndCheckSeedPhrasesOutputSchema>;
 
 
@@ -88,7 +88,7 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
       const { phrase, wordCount } = generateRandomSeedPhraseInternal();
       let derivedAddress: string | null = null;
       const walletType: string | null = "EVM (Ethereum-compatible)";
-      let derivationError: string | undefined = undefined;
+      // let derivationErrorMsg: string | undefined = undefined; // Keep for internal logging if needed
       const collectedApiBalances: AddressBalanceResult[] = [];
       let hasApiError = false;
 
@@ -97,11 +97,9 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
         derivedAddress = wallet.address;
       } catch (e: any) {
         console.error(`Flow: Error deriving wallet from seed phrase "${phrase.substring(0,20)}...": ${e.message}`);
-        derivationError = e.message || 'Unknown derivation error';
-        // Push result with derivation error if no positive balances are found later
-        // For now, we collect all errors and decide to push later
-        // flowResults.push({ seedPhrase: phrase, wordCount, derivedAddress: null, walletType: null, balances: [], derivationError, error: 'Failed to derive wallet.' });
-        // continue; // If we must have an address, we'd continue. Otherwise, we might still want to report this.
+        // derivationErrorMsg = e.message || 'Unknown derivation error';
+        // If derivation fails, log it and skip to the next seed phrase.
+        continue;
       }
 
       if (derivedAddress) {
@@ -121,19 +119,15 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
               collectedApiBalances.push(...balances);
               if (balances.some(b => b.dataSource === 'Error')) hasApiError = true;
             }
-            // Blockstream API for BTC.
             const balances = await fetchBlockstreamBalance(derivedAddress, input.blockstreamApiKey);
             collectedApiBalances.push(...balances);
             if (balances.some(b => b.dataSource === 'Error')) hasApiError = true;
         } catch (apiError: any) {
             console.error(`Flow: Critical error during API calls for address ${derivedAddress} from seed "${phrase.substring(0,20)}...": ${apiError.message}`, apiError.stack);
-            hasApiError = true;
-            // This general catch might indicate a problem with one of the fetch functions themselves or an unhandled promise rejection.
-            // We will rely on hasApiError to potentially push this result even if no positive balances.
+            hasApiError = true; // Mark that an API error occurred
         }
       }
 
-      // Filter for positive balances from real API data sources and map to FlowBalanceResult
       const positiveRealFlowBalances: FlowBalanceResult[] = collectedApiBalances
         .filter(b => b.isRealData && b.balance > 0 && b.dataSource !== 'Error' && b.dataSource !== 'N/A')
         .map(b => ({
@@ -143,28 +137,23 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
           isRealData: b.isRealData,
         }));
 
-      let overallError: string | undefined = undefined;
-      if (derivationError && positiveRealFlowBalances.length === 0) {
-          overallError = 'Failed to derive wallet.';
-      } else if (hasApiError && positiveRealFlowBalances.length === 0 && !derivationError) {
-          overallError = 'API error(s) occurred during balance check.';
-      }
-
-
-      // Add to flowResults if there are positive balances, or if there was a derivation/API error and no positive balances.
-      if (positiveRealFlowBalances.length > 0 || overallError) {
+      // Only add to flowResults if there are positive balances.
+      if (positiveRealFlowBalances.length > 0) {
         flowResults.push({
           seedPhrase: phrase,
           wordCount,
           derivedAddress,
           walletType,
           balances: positiveRealFlowBalances,
-          derivationError: derivationError, 
-          error: overallError,
+          // derivationError: derivationErrorMsg, // No longer explicitly needed in output if we only return success
+          error: hasApiError ? 'Positive balance(s) found, but some API calls may have failed for other assets.' : undefined,
         });
+      } else {
+         // Log if no positive balances, even if API errors occurred.
+         console.log(`Flow: No positive balances found for seed phrase "${phrase.substring(0,20)}..." (Address: ${derivedAddress}). API errors: ${hasApiError}. Skipping.`);
       }
     }
-    return flowResults;
+    return flowResults.length > 0 ? flowResults : []; // Return empty array if no results with positive balances
   }
 );
 
@@ -173,19 +162,12 @@ export async function generateAndCheckSeedPhrases(
   input: GenerateAndCheckSeedPhrasesInput
 ): Promise<GenerateAndCheckSeedPhrasesOutput> {
   try {
-    return await generateAndCheckSeedPhrasesFlow(input);
+    const results = await generateAndCheckSeedPhrasesFlow(input);
+    // If results is an empty array (no positive balances found), it's still a valid successful flow execution.
+    return results;
   } catch (flowError: any) {
     console.error("CRITICAL ERROR in generateAndCheckSeedPhrasesFlow execution:", flowError.message, flowError.stack);
-    // Return an empty array or a specific error structure if the flow itself crashes
-    // This helps prevent the "unexpected response" from Next.js if the entire flow fails
-    return [{
-        seedPhrase: "FLOW_EXECUTION_ERROR",
-        wordCount: 0,
-        derivedAddress: null,
-        walletType: null,
-        balances: [],
-        error: `Genkit flow failed: ${flowError.message}`,
-        derivationError: undefined,
-    }];
+    // Return null to indicate a critical flow failure, this will be filtered out by the frontend
+    return null;
   }
 }

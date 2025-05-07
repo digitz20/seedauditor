@@ -4,7 +4,7 @@
 import { ethers } from 'ethers';
 
 /**
- * Represents the balance data fetched for a specific address.
+ * Represents the balance data fetched for a specific address and currency.
  */
 export interface AddressBalanceResult {
   address: string;
@@ -15,14 +15,13 @@ export interface AddressBalanceResult {
 }
 
 /**
- * Represents the processed data for a single seed phrase, including derived address and balance.
+ * Represents the processed data for a single seed phrase, including derived address and all found balances.
  */
 export interface ProcessedWalletInfo {
   seedPhrase: string;
   derivedAddress: string | null;
   walletType: string | null; // e.g., 'Ethereum Virtual Machine'
-  cryptoName: string | null; // e.g., 'ETH', 'BTC' - This will come from AddressBalanceResult.currency
-  balanceData: AddressBalanceResult | null;
+  balanceData: AddressBalanceResult[] | null; // Array of balances
   error: string | null; // General error for the row, or balance fetch error
   derivationError: string | null; // Specific error during address derivation
 }
@@ -47,22 +46,23 @@ const ALCHEMY_EVM_CHAINS: AlchemyChain[] = [
 
 
 /**
- * Fetches the balance for a given Ethereum address.
- * Tries Etherscan first (ETH), then BlockCypher (multiple cryptos), then Alchemy (multiple EVM chains).
+ * Fetches all positive balances for a given address from supported APIs.
+ * Tries Etherscan (ETH), then BlockCypher (multiple cryptos), then Alchemy (multiple EVM chains).
  *
  * @param address The Ethereum address to fetch the balance for.
  * @param etherscanApiKey (Optional) The Etherscan API key.
  * @param blockcypherApiKey (Optional) The BlockCypher API key.
  * @param alchemyApiKey (Optional) The Alchemy API key.
- * @returns A Promise that resolves with the address balance and data source.
+ * @returns A Promise that resolves with an array of AddressBalanceResult for all positive balances found.
  */
 export async function fetchAddressBalance(
   address: string,
   etherscanApiKey?: string,
   blockcypherApiKey?: string,
   alchemyApiKey?: string,
-): Promise<AddressBalanceResult> {
-  console.log(`Fetching balance for address: ${address}. Etherscan: ${!!etherscanApiKey}, BlockCypher: ${!!blockcypherApiKey}, Alchemy: ${!!alchemyApiKey}`);
+): Promise<AddressBalanceResult[]> {
+  const allFoundBalances: AddressBalanceResult[] = [];
+  console.log(`Fetching all balances for address: ${address}. Etherscan: ${!!etherscanApiKey}, BlockCypher: ${!!blockcypherApiKey}, Alchemy: ${!!alchemyApiKey}`);
 
   if (!ethers.isAddress(address)) {
     console.warn(`Address ${address} is not a valid Ethereum checksum address. Proceeding with balance checks, but this might fail for ETH-specific APIs.`);
@@ -74,22 +74,23 @@ export async function fetchAddressBalance(
       const provider = new ethers.EtherscanProvider("mainnet", etherscanApiKey);
       const balanceBigInt = await provider.getBalance(address);
       const balanceEth = ethers.formatEther(balanceBigInt);
+      const balance = parseFloat(balanceEth);
       console.log(`Balance for ${address} from Etherscan: ${balanceEth} ETH`);
-      if (parseFloat(balanceEth) > 0) {
-        return {
+      if (balance > 0) {
+        allFoundBalances.push({
           address,
-          balance: parseFloat(balanceEth),
+          balance,
           currency: 'ETH',
           isRealData: true,
           dataSource: 'Etherscan API',
-        };
+        });
       }
     } catch (error: any) {
-      console.error(`Etherscan API error for ${address}: ${error.message}. Trying next available API.`);
+      console.error(`Etherscan API error for ${address}: ${error.message}.`);
     }
   }
 
-  // Try BlockCypher API for multiple coins (BTC, LTC, DOGE, DASH, and ETH as fallback)
+  // Try BlockCypher API for multiple coins
   if (blockcypherApiKey) {
     for (const coin of BLOCKCYPHER_COINS_ACTIONS) {
       try {
@@ -97,29 +98,29 @@ export async function fetchAddressBalance(
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: `Unknown error parsing BlockCypher error for ${coin.toUpperCase()}` }));
           console.warn(`BlockCypher API error for ${address} (${coin.toUpperCase()}): ${response.status} ${response.statusText} - ${errorData.error || JSON.stringify(errorData)}.`);
-          continue; 
+          continue;
         }
         const data = await response.json();
         const balanceInSmallestUnit = BigInt(data.final_balance || data.balance || 0);
         
         let balanceCoin = 0;
         if (balanceInSmallestUnit > 0) {
-          const decimals = (coin.toLowerCase() === 'eth') ? 18 : 8; 
+          const decimals = (coin.toLowerCase() === 'eth') ? 18 : 8; // Common decimals
           balanceCoin = parseFloat(ethers.formatUnits(balanceInSmallestUnit, decimals));
         }
 
         console.log(`Balance for ${address} from BlockCypher (${coin.toUpperCase()}): ${balanceCoin} ${coin.toUpperCase()}`);
         if (balanceCoin > 0) {
-          return {
+          allFoundBalances.push({
             address,
             balance: balanceCoin,
             currency: coin.toUpperCase(),
             isRealData: true,
             dataSource: 'BlockCypher API',
-          };
+          });
         }
       } catch (error: any) {
-        console.error(`BlockCypher API error for ${address} (${coin.toUpperCase()}): ${error.message}. Trying next coin.`);
+        console.error(`BlockCypher API error for ${address} (${coin.toUpperCase()}): ${error.message}.`);
       }
     }
   }
@@ -131,7 +132,7 @@ export async function fetchAddressBalance(
         const alchemyUrl = `https://${chain.endpointFragment}.g.alchemy.com/v2/${alchemyApiKey}`;
         const requestBody = {
             jsonrpc: "2.0",
-            id: 1,
+            id: Date.now() + Math.random(), // Unique ID
             method: "eth_getBalance",
             params: [address, "latest"],
         };
@@ -149,18 +150,17 @@ export async function fetchAddressBalance(
         
         const data = await response.json();
         if (data.result) {
-            // Most EVM chains use 18 decimals for their native currency (ETH, MATIC)
-            const balanceNative = ethers.formatUnits(BigInt(data.result), 18); 
-            console.log(`Balance for ${address} from Alchemy on ${chain.name}: ${balanceNative} ${chain.symbol}`);
+            const balanceNative = ethers.formatUnits(BigInt(data.result), 18); // Assuming 18 decimals for EVM native
             const balance = parseFloat(balanceNative);
+            console.log(`Balance for ${address} from Alchemy on ${chain.name}: ${balanceNative} ${chain.displayName}`);
             if (balance > 0) {
-                return {
+                allFoundBalances.push({
                     address,
                     balance: balance,
                     currency: chain.displayName,
                     isRealData: true,
                     dataSource: 'Alchemy API',
-                };
+                });
             }
         } else if (data.error) {
              console.warn(`Alchemy API returned error for ${address} on ${chain.name}: ${data.error.message}`);
@@ -171,26 +171,33 @@ export async function fetchAddressBalance(
     }
   }
   
-  // Default return if no balance found through APIs or if API keys are not provided
-  console.log(`No positive balance found for ${address} via provided APIs or no keys to check.`);
-  return {
-    address,
-    balance: 0,
-    currency: 'N/A',
-    isRealData: false, 
-    dataSource: (etherscanApiKey || blockcypherApiKey || alchemyApiKey) ? 'N/A' : 'Simulated Fallback', 
-  };
+  if (allFoundBalances.length === 0) {
+      console.log(`No positive balances found for ${address} via provided APIs or no keys to check.`);
+      // Optionally, return a single entry indicating no balance if needed by downstream logic expecting at least one item.
+      // For now, an empty array signifies no balances. If API keys were missing, isRealData would be false.
+      if (!etherscanApiKey && !blockcypherApiKey && !alchemyApiKey) {
+        // Push a "Simulated Fallback" if absolutely no keys, to clarify no real check was done.
+        allFoundBalances.push({
+            address,
+            balance: 0,
+            currency: 'N/A',
+            isRealData: false, 
+            dataSource: 'Simulated Fallback',
+        });
+      }
+  }
+  return allFoundBalances;
 }
 
 
 /**
- * Processes a list of seed phrases: derives addresses and fetches their balances.
+ * Processes a list of seed phrases: derives addresses and fetches all their positive balances.
  *
  * @param seedPhrases An array of seed phrases.
  * @param etherscanApiKey (Optional) The Etherscan API key.
  * @param blockcypherApiKey (Optional) The BlockCypher API key.
  * @param alchemyApiKey (Optional) The Alchemy API key.
- * @returns A Promise that resolves with an array of ProcessedWalletInfo.
+ * @returns A Promise that resolves with an array of ProcessedWalletInfo, filtered for those with real positive balances.
  */
 export async function processSeedPhrasesAndFetchBalances(
   seedPhrases: string[],
@@ -202,9 +209,8 @@ export async function processSeedPhrasesAndFetchBalances(
 
   for (const phrase of seedPhrases) {
     let derivedAddress: string | null = null;
-    let walletType: string | null = 'Ethereum Virtual Machine'; 
-    let cryptoName: string | null = null; 
-    let balanceData: AddressBalanceResult | null = null;
+    let walletType: string | null = 'Ethereum Virtual Machine';
+    let fetchedBalances: AddressBalanceResult[] = [];
     let error: string | null = null;
     let derivationError: string | null = null;
 
@@ -213,20 +219,10 @@ export async function processSeedPhrasesAndFetchBalances(
       derivedAddress = wallet.address;
       console.log(`Derived address: ${derivedAddress} for phrase starting with ${phrase.substring(0, 5)}...`);
 
-      await new Promise(resolve => setTimeout(resolve, 50 + Math.random() * 100)); // Small delay
+      // Small delay to avoid overwhelming APIs if processing many phrases sequentially
+      await new Promise(resolve => setTimeout(resolve, 50 + Math.random() * 100)); 
       
-      balanceData = await fetchAddressBalance(derivedAddress, etherscanApiKey, blockcypherApiKey, alchemyApiKey);
-
-      if (balanceData && balanceData.balance > 0) {
-        cryptoName = balanceData.currency; 
-      } else {
-        cryptoName = balanceData?.currency !== 'N/A' ? balanceData.currency : 'ETH'; 
-        if (!balanceData && derivedAddress) {
-            balanceData = { address: derivedAddress, balance: 0, currency: cryptoName, isRealData: false, dataSource: 'N/A' };
-        } else if (balanceData && balanceData.balance === 0) {
-             cryptoName = balanceData.currency;
-        }
-      }
+      fetchedBalances = await fetchAddressBalance(derivedAddress, etherscanApiKey, blockcypherApiKey, alchemyApiKey);
 
     } catch (e: any) {
       console.error(`Error processing seed phrase "${phrase.substring(0,5)}...": ${e.message}`);
@@ -237,27 +233,33 @@ export async function processSeedPhrasesAndFetchBalances(
       }
       error = derivationError ? `Derivation failed: ${derivationError}` : `Balance fetch failed: ${e.message}`;
       walletType = derivationError ? null : walletType;
-      cryptoName = derivationError ? null : cryptoName;
-       if (!balanceData && derivedAddress) { 
-          balanceData = { address: derivedAddress, balance: 0, currency: 'N/A', isRealData: false, dataSource: 'N/A' };
-      }
+       // If derivation failed, fetchedBalances will be empty. If fetch failed, it might also be empty.
+       // Ensure balanceData is an empty array if an error occurred before/during fetch.
+       if (derivedAddress && fetchedBalances.length === 0 && !derivationError) { 
+            // This case is if fetchAddressBalance returned empty but no specific API errors were logged inside it.
+            // Or if an error happened before fetchAddressBalance that didn't set derivationError.
+             fetchedBalances.push({ address: derivedAddress, balance: 0, currency: 'N/A', isRealData: false, dataSource: 'N/A' });
+        }
     }
 
     results.push({
       seedPhrase: phrase,
       derivedAddress,
       walletType,
-      cryptoName: balanceData?.balance > 0 ? balanceData.currency : (cryptoName || 'N/A'),
-      balanceData,
+      balanceData: fetchedBalances, // Always an array
       error,
       derivationError,
     });
   }
   
+  // Filter results to only include those with at least one real, positive balance
   if (etherscanApiKey || blockcypherApiKey || alchemyApiKey) {
-    return results.filter(r => r.balanceData && r.balanceData.balance > 0 && r.balanceData.isRealData);
+    return results.filter(r =>
+      r.balanceData &&
+      r.balanceData.length > 0 &&
+      r.balanceData.some(bal => bal.balance > 0 && bal.isRealData)
+    );
   }
-  // If no API keys, means no real check was possible to find non-zero balance.
-  // The original logic implied simulation if no keys, but current filtering for real data means empty if no keys.
-  return []; 
+  // If no API keys, no real check was possible. Return empty as per original filtering logic.
+  return [];
 }

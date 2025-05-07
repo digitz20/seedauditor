@@ -16,18 +16,27 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Activity, Terminal, Loader2, Wallet, Network, Coins, Copy, Eraser, Trash2, KeyRound, Info, ExternalLink, SearchCheck, ShieldAlert, DatabaseZap, Pause, Play, Square, Settings2, ListChecks, ScrollText } from 'lucide-react';
+import { Activity, Terminal, Loader2, Wallet, Network, Coins, Copy, Eraser, Trash2, KeyRound, Info, ExternalLink, SearchCheck, ShieldAlert, DatabaseZap, Pause, Play, Square, Settings2, ListChecks, ScrollText, PlusCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { processSeedPhrasesAndFetchBalances, type ProcessedWalletInfo, type AddressBalanceResult } from './actions';
-import { generateAndCheckSeedPhrases, type GenerateAndCheckSeedPhrasesOutput, type GenerateAndCheckSeedPhrasesInput } from '@/ai/flows/random-seed-phrase';
+import { generateAndCheckSeedPhrases, type GenerateAndCheckSeedPhrasesOutput, type GenerateAndCheckSeedPhrasesInput, type SingleSeedPhraseResultSchema as FlowSingleSeedPhraseResultSchema } from '@/ai/flows/random-seed-phrase'; // Adjusted import for clarity
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 
-interface ResultRow extends ProcessedWalletInfo {
+interface ResultRow extends Omit<ProcessedWalletInfo, 'balanceData' | 'cryptoName'> {
   isLoading: boolean;
   wordCount?: number;
+  // Store all balances
+  balanceData: AddressBalanceResult[] | null; 
+  // For display purposes, we'll pick the first non-zero balance's cryptoName.
+  displayCryptoName?: string | null; 
+  displayBalance?: number | null;
+  displayDataSource?: AddressBalanceResult['dataSource'] | null;
+  numOtherBalances?: number; // Number of other positive balances not displayed
 }
+
 
 const MAX_DISPLAYED_RESULTS = 500; 
 
@@ -38,7 +47,7 @@ export default function Home() {
   const [alchemyApiKeyInput, setAlchemyApiKeyInput] = useState<string>(process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || 'p4UZuRIRutN5yn06iKDjOcAX2nB75ZRp');
   const [results, setResults] = useState<ResultRow[]>([]);
   const [isProcessingManual, setIsProcessingManual] = useState<boolean>(false);
-  const [numSeedPhrasesToGenerate, setNumSeedPhrasesToGenerate] = useState<number>(10); // Default for auto-generator batch
+  const [numSeedPhrasesToGenerate, setNumSeedPhrasesToGenerate] = useState<number>(10);
 
   const { toast } = useToast();
 
@@ -73,6 +82,59 @@ export default function Home() {
       return newLogs.length > MAX_LOGS ? newLogs.slice(0, MAX_LOGS) : newLogs;
     });
   }, []);
+
+  const processAndSetDisplayBalances = (data: ProcessedWalletInfo[] | GenerateAndCheckSeedPhrasesOutput, isFromFlow: boolean = false): ResultRow[] => {
+    return data.map(item => {
+      let firstRealPositiveBalance: AddressBalanceResult | undefined;
+      let allPositiveBalances: AddressBalanceResult[] = [];
+      let wordCountVal: number;
+      let itemBalances: any[] = []; // To hold either item.balanceData or item.balances
+
+      if (isFromFlow) {
+        const flowItem = item as FlowSingleSeedPhraseResultSchema;
+        itemBalances = flowItem.balances || [];
+        allPositiveBalances = itemBalances
+            .filter(b => b.balance > 0)
+            .map(b => ({
+                address: flowItem.derivedAddress,
+                balance: b.balance,
+                currency: b.cryptoName,
+                isRealData: ['Etherscan API', 'BlockCypher API', 'Alchemy API'].includes(b.dataSource),
+                dataSource: b.dataSource as AddressBalanceResult['dataSource'],
+            }));
+        wordCountVal = flowItem.wordCount;
+      } else { 
+        const actionItem = item as ProcessedWalletInfo;
+        itemBalances = actionItem.balanceData || [];
+        allPositiveBalances = itemBalances.filter(bal => bal.balance > 0 && bal.isRealData);
+        wordCountVal = actionItem.seedPhrase.split(' ').length;
+      }
+      
+      firstRealPositiveBalance = allPositiveBalances.length > 0 ? allPositiveBalances[0] : undefined;
+
+      return {
+        seedPhrase: item.seedPhrase,
+        derivedAddress: item.derivedAddress,
+        walletType: item.walletType,
+        balanceData: itemBalances.map(b => ({ // Store all original balances correctly mapped
+             address: item.derivedAddress,
+             balance: b.balance,
+             currency: b.currency || b.cryptoName, // Adapt based on source structure
+             isRealData: b.isRealData !== undefined ? b.isRealData : ['Etherscan API', 'BlockCypher API', 'Alchemy API'].includes(b.dataSource),
+             dataSource: b.dataSource as AddressBalanceResult['dataSource'],
+        })),
+        error: item.error || null,
+        derivationError: item.derivationError || null,
+        isLoading: false,
+        wordCount: wordCountVal,
+        displayCryptoName: firstRealPositiveBalance?.currency,
+        displayBalance: firstRealPositiveBalance?.balance,
+        displayDataSource: firstRealPositiveBalance?.dataSource,
+        numOtherBalances: allPositiveBalances.length > 1 ? allPositiveBalances.length - 1 : 0,
+      };
+    });
+  };
+
 
   const handleFetchBalances = async () => {
     const phrases = seedPhrasesInput
@@ -112,16 +174,9 @@ export default function Home() {
     }
 
     setIsProcessingManual(true);
-    // Set initial loading state, but filter out invalid phrases early if possible.
     const validPhrases = phrases.filter(phrase => {
         const wordCount = phrase.split(' ').length;
-        if (![12, 15, 18, 21, 24].includes(wordCount)) {
-            // Optionally, add these to results with an error immediately or just log
-            // For now, we'll let processSeedPhrasesAndFetchBalances handle it,
-            // but this is a place for pre-validation.
-            return true; // Let backend handle for now
-        }
-        return true;
+        return [12, 15, 18, 21, 24].includes(wordCount);
     });
 
     setResults(
@@ -129,42 +184,36 @@ export default function Home() {
         seedPhrase: phrase,
         derivedAddress: null,
         walletType: null,
-        cryptoName: null,
-        balanceData: null,
+        balanceData: [], 
         error: null,
         derivationError: null,
         isLoading: true,
         wordCount: phrase.split(' ').length,
+        displayCryptoName: null,
+        displayBalance: null,
+        displayDataSource: null,
+        numOtherBalances: 0,
       }))
     );
 
     try {
-      const processedData = await processSeedPhrasesAndFetchBalances(
-        validPhrases, // Use only valid phrases for processing
+      const processedDataFromAction = await processSeedPhrasesAndFetchBalances(
+        validPhrases,
         etherscanApiKeyInputRef.current || undefined,
         blockcypherApiKeyInputRef.current || undefined,
         alchemyApiKeyInputRef.current || undefined
       );
       
-      const finalResults = processedData.map(data => ({ 
-        ...data, 
-        isLoading: false, 
-        wordCount: data.seedPhrase.split(' ').length,
-        // cryptoName is already set by processSeedPhrasesAndFetchBalances based on balanceData.currency
-      }));
-
-      // Filter to show only results with positive balance from real data sources
-      const positiveBalanceResults = finalResults.filter(r => r.balanceData && r.balanceData.balance > 0 && r.balanceData.isRealData);
-      setResults(positiveBalanceResults);
+      const finalResults = processAndSetDisplayBalances(processedDataFromAction, false);
+      setResults(finalResults);
 
 
       let toastMessage = `Finished processing ${phrases.length} seed phrases. `;
-      toastMessage += `Found ${positiveBalanceResults.length} wallet(s) with a non-zero balance.`;
+      toastMessage += `Found ${finalResults.length} wallet(s) with at least one non-zero balance.`;
       
       if (!hasEtherscanKey && !hasBlockcypherKey && !hasAlchemyKey && phrases.length > 0) {
         toastMessage += ' No API keys were provided, so no real balances could be fetched.';
       }
-
 
       toast({
         title: 'Balance Check Complete',
@@ -178,7 +227,6 @@ export default function Home() {
         description: `An unexpected error occurred: ${error.message}. Some results might be incomplete.`,
         variant: 'destructive',
       });
-      // Update results to reflect error, but keep existing valid results if any partial success
        setResults(prevResults => prevResults.map(r => ({ ...r, isLoading: false, error: r.isLoading ? (r.error || "Overall process failed") : r.error })));
     }
 
@@ -204,37 +252,17 @@ export default function Home() {
         alchemyApiKey: alchemyApiKeyInputRef.current || undefined,
       };
 
-      const generatedData: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
-
-      const processedData = generatedData.map(item => ({
-        seedPhrase: item.seedPhrase,
-        derivedAddress: item.derivedAddress,
-        walletType: item.walletType,
-        cryptoName: item.cryptoName, 
-        balanceData: {
-          address: item.derivedAddress,
-          balance: item.balance,
-          currency: item.cryptoName, 
-          isRealData: ['Etherscan API', 'BlockCypher API', 'Alchemy API'].includes(item.dataSource),
-          dataSource: item.dataSource as AddressBalanceResult['dataSource'],
-        },
-        error: null,
-        derivationError: null,
-        isLoading: false,
-        wordCount: item.wordCount,
-      }));
+      const generatedDataFromFlow: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
+      const processedResults = processAndSetDisplayBalances(generatedDataFromFlow, true);
       
-      addLogMessage(`Manual generation: Received ${generatedData.length} phrases with balance from ${numSeedPhrasesToGenerateRef.current} generated.`);
-      // Add to existing results, keeping MAX_DISPLAYED_RESULTS
-      setResults(prevResults => [...processedData, ...prevResults].slice(0, MAX_DISPLAYED_RESULTS));
-
+      addLogMessage(`Manual generation: Received ${processedResults.length} phrases with balance from ${numSeedPhrasesToGenerateRef.current} generated.`);
+      setResults(prevResults => [...processedResults, ...prevResults].slice(0, MAX_DISPLAYED_RESULTS));
 
       toast({
         title: 'Seed Phrases Generated and Checked',
-        description: `Generated and checked ${numSeedPhrasesToGenerateRef.current} seed phrases. Found ${processedData.length} with balance.`,
+        description: `Generated and checked ${numSeedPhrasesToGenerateRef.current} seed phrases. Found ${processedResults.length} with balance.`,
       });
-    } catch (error: any)
-		{
+    } catch (error: any) {
       console.error("Error generating and checking seed phrases:", error);
       addLogMessage(`Manual generation error: ${error.message}`);
       toast({
@@ -286,7 +314,7 @@ export default function Home() {
 
     const currentNumToGenerate = numSeedPhrasesToGenerateRef.current > 0 ? numSeedPhrasesToGenerateRef.current : 1;
     addLogMessage(`Generating batch of ${currentNumToGenerate} seed phrases... (Total checked: ${checkedPhrasesCount})`);
-
+    let processedResultsFromFlow = [];
     try {
       const input: GenerateAndCheckSeedPhrasesInput = {
         numSeedPhrases: currentNumToGenerate,
@@ -295,31 +323,14 @@ export default function Home() {
         alchemyApiKey: alchemyApiKeyInputRef.current || undefined,
       };
 
-      const generatedData: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
-      
-      const processedData = generatedData.map(item => ({
-        seedPhrase: item.seedPhrase,
-        derivedAddress: item.derivedAddress,
-        walletType: item.walletType,
-        cryptoName: item.cryptoName,
-        balanceData: {
-          address: item.derivedAddress,
-          balance: item.balance,
-          currency: item.cryptoName,
-          isRealData: ['Etherscan API', 'BlockCypher API', 'Alchemy API'].includes(item.dataSource),
-          dataSource: item.dataSource as AddressBalanceResult['dataSource'],
-        },
-        error: null,
-        derivationError: null,
-        isLoading: false,
-        wordCount: item.wordCount,
-      }));
-      
+      const generatedDataFromFlow: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
+      processedResultsFromFlow = processAndSetDisplayBalances(generatedDataFromFlow, true); // Renamed to avoid conflict
+            
       setCheckedPhrasesCount(prevCount => prevCount + currentNumToGenerate);
       
-      if (processedData.length > 0) {
-        setResults(prevResults => [...processedData, ...prevResults].slice(0, MAX_DISPLAYED_RESULTS));
-        addLogMessage(`Found ${processedData.length} wallet(s) with balance in this batch. Results updated.`);
+      if (processedResultsFromFlow.length > 0) {
+        setResults(prevResults => [...processedResultsFromFlow, ...prevResults].slice(0, MAX_DISPLAYED_RESULTS));
+        addLogMessage(`Found ${processedResultsFromFlow.length} wallet(s) with balance in this batch. Results updated.`);
       }
 
     } catch (error: any) {
@@ -338,20 +349,20 @@ export default function Home() {
     }
 
     if (isAutoGeneratingRef.current && !isAutoGenerationPausedRef.current) {
-      const delay = processedData.length > 0 ? 300 : 500; 
+      const delay = processedResultsFromFlow && processedResultsFromFlow.length > 0 ? 300 : 500; 
       timeoutRef.current = setTimeout(runAutoGenerationStep, delay); 
     } else {
        setCurrentGenerationStatus(isAutoGenerationPausedRef.current ? 'Paused' : 'Stopped');
        if (timeoutRef.current) clearTimeout(timeoutRef.current);
        timeoutRef.current = null;
     }
-  }, [addLogMessage, checkedPhrasesCount, toast]); // Removed numSeedPhrasesToGenerate from deps as ref is used
+  }, [addLogMessage, checkedPhrasesCount, toast, processAndSetDisplayBalances]);
 
   const startAutoGenerating = () => {
     const wasPaused = isAutoGenerationPausedRef.current;
-    if (!isAutoGeneratingRef.current || wasPaused) { // If not running or was paused
+    if (!isAutoGeneratingRef.current || wasPaused) {
         addLogMessage(wasPaused ? 'Resuming automatic seed phrase generation...' : 'Starting automatic seed phrase generation...');
-        if (!wasPaused) setCheckedPhrasesCount(0); // Reset count only if starting fresh
+        if (!wasPaused) setCheckedPhrasesCount(0);
     }
     
     setIsAutoGenerating(true);
@@ -366,7 +377,7 @@ export default function Home() {
   };
 
   const pauseAutoGenerating = () => {
-    if (!isAutoGeneratingRef.current || isAutoGenerationPausedRef.current) return; // Do nothing if not running or already paused
+    if (!isAutoGeneratingRef.current || isAutoGenerationPausedRef.current) return;
     addLogMessage('Pausing automatic seed phrase generation.');
     setIsAutoGenerationPaused(true); 
     setCurrentGenerationStatus('Paused');
@@ -378,7 +389,7 @@ export default function Home() {
   };
 
   const stopAutoGenerating = () => {
-    if (!isAutoGeneratingRef.current) return; // Do nothing if not running
+    if (!isAutoGeneratingRef.current) return;
     addLogMessage('Stopped automatic seed phrase generation.');
     setIsAutoGenerating(false);
     setIsAutoGenerationPaused(false); 
@@ -409,8 +420,7 @@ export default function Home() {
     if (upperSymbol.includes('LTC')) return 'Ł';
     if (upperSymbol.includes('DOGE')) return 'Ð';
     if (upperSymbol.includes('DASH')) return 'D';
-    if (upperSymbol.includes('MATIC')) return 'MATIC'.charAt(0); // Or a specific Polygon icon if available
-    // Default to first char
+    if (upperSymbol.includes('MATIC')) return 'MATIC'.charAt(0); 
     return currencySymbol.charAt(0).toUpperCase();
   };
 
@@ -437,7 +447,7 @@ export default function Home() {
     }
   };
 
-  const getDataSourceTag = (dataSource: AddressBalanceResult['dataSource'] | undefined) => {
+  const getDataSourceTag = (dataSource: AddressBalanceResult['dataSource'] | undefined | null) => {
     switch (dataSource) {
       case 'Etherscan API':
         return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-green-100 text-green-800 dark:bg-green-800/30 dark:text-green-300">Etherscan</span>;
@@ -738,31 +748,32 @@ export default function Home() {
       {results.length > 0 && (
         <Card className="shadow-md">
           <CardHeader>
-            <CardTitle>Balance Results (Wallets with Balance &gt; 0)</CardTitle>
+            <CardTitle>Balance Results (Wallets with Real Positive Balance)</CardTitle>
             <CardDescription>
               Etherscan API (masked): {etherscanApiKeyInputRef.current?.trim() ? maskValue(etherscanApiKeyInputRef.current, 4, 4) : 'N/A'}.
               BlockCypher API (masked): {blockcypherApiKeyInputRef.current?.trim() ? maskValue(blockcypherApiKeyInputRef.current, 4, 4) : 'N/A'}.
               Alchemy API (masked): {alchemyApiKeyInputRef.current?.trim() ? maskValue(alchemyApiKeyInputRef.current, 4, 4) : 'N/A'}.
-              Displaying up to {MAX_DISPLAYED_RESULTS} results with non-zero balance (newest first).
+              Displaying up to {MAX_DISPLAYED_RESULTS} results with at least one non-zero balance from a real API (newest first). 
+              Showing first asset found; others indicated by (+X).
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
-              <TableCaption>Derived EVM addresses and their balances. Only wallets with balances &gt; 0 from API checks are shown.</TableCaption>
+              <TableCaption>Derived EVM addresses and their balances. Only wallets with real balances &gt; 0 are shown.</TableCaption>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[20%]">Seed Phrase (Masked)</TableHead>
                   <TableHead className="w-[10%] text-center">Length</TableHead>
                   <TableHead className="w-[25%]">Derived Address (Masked)</TableHead>
                   <TableHead className="w-[15%] text-center">Wallet Type</TableHead>
-                  <TableHead className="w-[10%] text-center">Asset</TableHead>
+                  <TableHead className="w-[10%] text-center">Primary Asset</TableHead>
                   <TableHead className="w-[10%] text-right">Balance</TableHead>
                   <TableHead className="w-[10%] text-center">Data Source</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {results.map((result, index) => (
-                  <TableRow key={`${result.seedPhrase}-${index}-${result.derivedAddress}-${result.cryptoName}`} className={`hover:bg-secondary/50 ${result.derivationError ? 'bg-red-50 dark:bg-red-900/30' : ''}`}>
+                  <TableRow key={`${result.seedPhrase}-${index}-${result.derivedAddress}-${result.displayCryptoName}`} className={`hover:bg-secondary/50 ${result.derivationError ? 'bg-red-50 dark:bg-red-900/30' : ''}`}>
                     <TableCell className="font-mono text-xs align-top">
                       <div className="flex items-center gap-1">
                         <span>{maskValue(result.seedPhrase, 4, 4)}</span>
@@ -798,11 +809,10 @@ export default function Home() {
                             <Copy className="h-3 w-3" />
                           </Button>
                           <a href={ 
-                            result.cryptoName?.toUpperCase() === "BTC" ? `https://www.blockchain.com/explorer/addresses/btc/${result.derivedAddress}` : 
-                            result.cryptoName?.toUpperCase() === "LTC" ? `https://live.blockcypher.com/ltc/address/${result.derivedAddress}/` :
-                            result.cryptoName?.toUpperCase() === "DOGE" ? `https://dogechain.info/address/${result.derivedAddress}` :
-                            result.cryptoName?.toUpperCase() === "DASH" ? `https://explorer.dash.org/address/${result.derivedAddress}` :
-                            // Default to Etherscan for ETH and other EVM chains
+                            result.displayCryptoName?.toUpperCase() === "BTC" ? `https://www.blockchain.com/explorer/addresses/btc/${result.derivedAddress}` : 
+                            result.displayCryptoName?.toUpperCase() === "LTC" ? `https://live.blockcypher.com/ltc/address/${result.derivedAddress}/` :
+                            result.displayCryptoName?.toUpperCase() === "DOGE" ? `https://dogechain.info/address/${result.derivedAddress}` :
+                            result.displayCryptoName?.toUpperCase() === "DASH" ? `https://explorer.dash.org/address/${result.derivedAddress}` :
                             `https://etherscan.io/address/${result.derivedAddress}`
                             } target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700">
                             <ExternalLink className="h-3 w-3" />
@@ -823,35 +833,50 @@ export default function Home() {
                       ) : result.isLoading ? '' : '-'}
                     </TableCell>
                     <TableCell className="text-center align-top">
-                      {result.cryptoName && result.cryptoName !== 'N/A' ? (
+                       {result.displayCryptoName && result.displayCryptoName !== 'N/A' ? (
                         <span className="inline-flex items-center gap-1 text-xs">
                           <Coins className="h-3 w-3 text-muted-foreground" />
-                          {result.cryptoName}
+                          {result.displayCryptoName}
+                          {result.numOtherBalances && result.numOtherBalances > 0 ? (
+                             <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="ml-1 text-accent cursor-help flex items-center">
+                                     <PlusCircle className="h-3 w-3 mr-0.5"/> {result.numOtherBalances}
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="text-xs p-2">
+                                  <p>{result.numOtherBalances} other asset(s) with balance.</p>
+                                  <p>Full multi-asset display coming soon!</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          ) : null}
                         </span>
-                      ) : result.isLoading ? '' : (result.balanceData?.balance || 0) > 0 ? (result.balanceData?.currency || '-') : '-'}
+                      ) : result.isLoading ? '' : (result.displayBalance || 0) > 0 ? (result.displayCryptoName || '-') : '-'}
                     </TableCell>
                     <TableCell className="text-right align-top">
-                      {result.isLoading && !result.balanceData && <span className="text-muted-foreground text-xs">Loading...</span>}
-                      {result.balanceData && result.balanceData.balance > 0 ? (
+                      {result.isLoading && !result.displayBalance && <span className="text-muted-foreground text-xs">Loading...</span>}
+                      {result.displayBalance && result.displayBalance > 0 ? (
                         <span className="flex items-center justify-end gap-1 font-medium text-xs">
-                          <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full ${result.balanceData.isRealData ? 'bg-green-500/20 text-green-700 dark:text-green-400' : 'bg-accent/20 text-accent'} text-[10px] font-bold shrink-0`}>
-                            {getCurrencyIcon(result.balanceData.currency)}
+                          <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full bg-green-500/20 text-green-700 dark:text-green-400 text-[10px] font-bold shrink-0`}>
+                            {getCurrencyIcon(result.displayCryptoName)}
                           </span>
-                          {result.balanceData.balance.toFixed(6)}{' '}
-                          <span className="text-muted-foreground text-[10px] shrink-0">{result.balanceData.currency.split(' ')[0]}</span> {/* Show base currency like ETH, MATIC */}
+                          {result.displayBalance.toFixed(6)}{' '}
+                          <span className="text-muted-foreground text-[10px] shrink-0">{result.displayCryptoName?.split(' ')[0]}</span>
                         </span>
-                      ) : !result.isLoading && result.balanceData && result.balanceData.balance === 0 ? (
-                         <span className="text-muted-foreground text-xs">0.000000 {result.balanceData.currency !== 'N/A' ? result.balanceData.currency.split(' ')[0] : ''}</span>
-                      ) : result.error && !result.derivationError ? (
+                      ) : !result.isLoading && result.balanceData && result.balanceData.length > 0 && result.balanceData.every(b => b.balance === 0) ? (
+                         <span className="text-muted-foreground text-xs">0.000000 {result.displayCryptoName !== 'N/A' ? result.displayCryptoName?.split(' ')[0] : ''}</span>
+                      ): result.error && !result.derivationError ? (
                         <span className="text-destructive text-xs italic">Fetch Error</span>
                       ) : (
                         !result.isLoading && '-'
                       )}
                     </TableCell>
                     <TableCell className="text-center align-top text-xs">
-                      {result.isLoading && !result.balanceData && <Loader2 className="h-4 w-4 animate-spin text-accent inline-block" />}
-                      {result.balanceData ? (
-                        getDataSourceTag(result.balanceData.dataSource)
+                      {result.isLoading && !result.displayDataSource && <Loader2 className="h-4 w-4 animate-spin text-accent inline-block" />}
+                      {result.displayDataSource ? (
+                        getDataSourceTag(result.displayDataSource)
                       ) : result.derivationError ? (
                         '-'
                       ) : result.error && !result.isLoading ? (

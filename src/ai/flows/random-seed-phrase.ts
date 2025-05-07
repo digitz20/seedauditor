@@ -90,6 +90,7 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
       const walletType: string | null = "EVM (Ethereum-compatible)";
       let derivationError: string | undefined = undefined;
       const collectedApiBalances: AddressBalanceResult[] = [];
+      let hasApiError = false;
 
       try {
         const wallet = ethers.Wallet.fromPhrase(phrase);
@@ -97,28 +98,39 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
       } catch (e: any) {
         console.error(`Flow: Error deriving wallet from seed phrase "${phrase.substring(0,20)}...": ${e.message}`);
         derivationError = e.message || 'Unknown derivation error';
-        // Optionally, push error result if needed, but current requirement is to only return non-empty balances
+        // Push result with derivation error if no positive balances are found later
+        // For now, we collect all errors and decide to push later
         // flowResults.push({ seedPhrase: phrase, wordCount, derivedAddress: null, walletType: null, balances: [], derivationError, error: 'Failed to derive wallet.' });
-        continue; // Skip to the next phrase if derivation fails
+        // continue; // If we must have an address, we'd continue. Otherwise, we might still want to report this.
       }
 
       if (derivedAddress) {
-        // Fetch balances using all provided API keys
-        if (input.etherscanApiKey) {
-          const balances = await fetchEtherscanBalance(derivedAddress, input.etherscanApiKey);
-          collectedApiBalances.push(...balances);
+        try {
+            if (input.etherscanApiKey) {
+              const balances = await fetchEtherscanBalance(derivedAddress, input.etherscanApiKey);
+              collectedApiBalances.push(...balances);
+              if (balances.some(b => b.dataSource === 'Error')) hasApiError = true;
+            }
+            if (input.blockcypherApiKey) {
+              const balances = await fetchBlockcypherBalances(derivedAddress, input.blockcypherApiKey);
+              collectedApiBalances.push(...balances);
+              if (balances.some(b => b.dataSource === 'Error')) hasApiError = true;
+            }
+            if (input.alchemyApiKey) {
+              const balances = await fetchAlchemyBalances(derivedAddress, input.alchemyApiKey);
+              collectedApiBalances.push(...balances);
+              if (balances.some(b => b.dataSource === 'Error')) hasApiError = true;
+            }
+            // Blockstream API for BTC.
+            const balances = await fetchBlockstreamBalance(derivedAddress, input.blockstreamApiKey);
+            collectedApiBalances.push(...balances);
+            if (balances.some(b => b.dataSource === 'Error')) hasApiError = true;
+        } catch (apiError: any) {
+            console.error(`Flow: Critical error during API calls for address ${derivedAddress} from seed "${phrase.substring(0,20)}...": ${apiError.message}`, apiError.stack);
+            hasApiError = true;
+            // This general catch might indicate a problem with one of the fetch functions themselves or an unhandled promise rejection.
+            // We will rely on hasApiError to potentially push this result even if no positive balances.
         }
-        if (input.blockcypherApiKey) {
-          const balances = await fetchBlockcypherBalances(derivedAddress, input.blockcypherApiKey);
-          collectedApiBalances.push(...balances);
-        }
-        if (input.alchemyApiKey) {
-          const balances = await fetchAlchemyBalances(derivedAddress, input.alchemyApiKey);
-          collectedApiBalances.push(...balances);
-        }
-        // Blockstream API for BTC. Key may be optional for public endpoints.
-        const balances = await fetchBlockstreamBalance(derivedAddress, input.blockstreamApiKey);
-        collectedApiBalances.push(...balances);
       }
 
       // Filter for positive balances from real API data sources and map to FlowBalanceResult
@@ -131,18 +143,26 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
           isRealData: b.isRealData,
         }));
 
-      // Only add to flowResults if there are any positive real balances
-      if (positiveRealFlowBalances.length > 0) {
+      let overallError: string | undefined = undefined;
+      if (derivationError && positiveRealFlowBalances.length === 0) {
+          overallError = 'Failed to derive wallet.';
+      } else if (hasApiError && positiveRealFlowBalances.length === 0 && !derivationError) {
+          overallError = 'API error(s) occurred during balance check.';
+      }
+
+
+      // Add to flowResults if there are positive balances, or if there was a derivation/API error and no positive balances.
+      if (positiveRealFlowBalances.length > 0 || overallError) {
         flowResults.push({
           seedPhrase: phrase,
           wordCount,
           derivedAddress,
           walletType,
           balances: positiveRealFlowBalances,
-          derivationError: derivationError, // Will be undefined if derivation succeeded
+          derivationError: derivationError, 
+          error: overallError,
         });
       }
-      // If no positive real balances, this seed phrase result is skipped as per requirement.
     }
     return flowResults;
   }
@@ -152,5 +172,20 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
 export async function generateAndCheckSeedPhrases(
   input: GenerateAndCheckSeedPhrasesInput
 ): Promise<GenerateAndCheckSeedPhrasesOutput> {
-  return generateAndCheckSeedPhrasesFlow(input);
+  try {
+    return await generateAndCheckSeedPhrasesFlow(input);
+  } catch (flowError: any) {
+    console.error("CRITICAL ERROR in generateAndCheckSeedPhrasesFlow execution:", flowError.message, flowError.stack);
+    // Return an empty array or a specific error structure if the flow itself crashes
+    // This helps prevent the "unexpected response" from Next.js if the entire flow fails
+    return [{
+        seedPhrase: "FLOW_EXECUTION_ERROR",
+        wordCount: 0,
+        derivedAddress: null,
+        walletType: null,
+        balances: [],
+        error: `Genkit flow failed: ${flowError.message}`,
+        derivationError: undefined,
+    }];
+  }
 }

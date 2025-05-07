@@ -98,7 +98,7 @@ export default function Home() {
     if (!hasEtherscanKey && !hasBlockcypherKey && !hasAlchemyKey) {
       toast({
         title: 'API Key Recommended',
-        description: 'Please enter an Etherscan, BlockCypher, or Alchemy API key for real ETH balances. Balances will be simulated.',
+        description: 'Please enter an Etherscan, BlockCypher, or Alchemy API key for real balances. Balances will be simulated.',
         variant: 'default',
       });
        // For manual input, if no keys, we will still proceed with simulation.
@@ -157,9 +157,9 @@ export default function Home() {
       if (hasAlchemyKey) usedApis.push('Alchemy');
 
       if (usedApis.length > 0) {
-        toastMessage += `Attempted to fetch real ETH balances using ${usedApis.join(', ')}.`;
+        toastMessage += `Attempted to fetch real balances using ${usedApis.join(', ')}.`;
       } else {
-        toastMessage += 'No API keys provided; ETH balances are simulated.';
+        toastMessage += 'No API keys provided; balances are simulated.';
       }
       
 
@@ -407,7 +407,7 @@ export default function Home() {
     }
   };
 
-  const getFetchButtonText = () => {
+  const getFetchButtonTextSuffix = () => {
     const keys = [];
     if (etherscanApiKeyInput.trim()) keys.push('Etherscan');
     if (blockcypherApiKeyInput.trim()) keys.push('BlockCypher');
@@ -424,10 +424,10 @@ export default function Home() {
     <div className="container mx-auto p-4 md:p-8">
       <header className="mb-8 text-center">
         <h1 className="text-3xl font-bold text-primary mb-2 flex items-center justify-center gap-2">
-          <Wallet className="h-8 w-8" /> ETH Balance Auditor
+          <Wallet className="h-8 w-8" /> Balance Auditor
         </h1>
         <p className="text-muted-foreground">
-          Enter seed phrases and API keys (Etherscan/BlockCypher/Alchemy) to derive addresses and fetch their real ETH balances. Or, use the automatic generator.
+          Enter seed phrases and API keys (Etherscan/BlockCypher/Alchemy) to derive addresses and fetch their real balances. Or, use the automatic generator.
         </p>
       </header>
 
@@ -439,8 +439,8 @@ export default function Home() {
           This application is for demonstration and educational purposes.
           <ul>
             <li>It uses <code>ethers.js</code> for LOCAL address derivation. Your seed phrases are NOT sent to any server for derivation.</li>
-            <li>It WILL attempt to use provided API keys (Etherscan, BlockCypher, Alchemy) to fetch REAL ETH balances.</li>
-            <li>If API keys are missing, invalid, or calls fail, it falls back to RANDOMLY SIMULATED ETH balances (for manual input).</li>
+            <li>It WILL attempt to use provided API keys (Etherscan, BlockCypher, Alchemy) to fetch REAL balances.</li>
+            <li>If API keys are missing, invalid, or calls fail, it falls back to RANDOMLY SIMULATED balances (for manual input).</li>
             <li>The automatic generator attempts to find wallets with balances using the provided keys. If API calls fail (e.g. rate limits), results may show 0 balance with 'Unknown' source.</li>
             <li><strong>Exposing real seed phrases can lead to PERMANENT LOSS OF FUNDS. The pre-filled API keys are for demonstration and may be rate-limited or revoked.</strong></li>
           </ul>
@@ -538,7 +538,7 @@ export default function Home() {
             onClick={handleFetchBalances}
             disabled={isProcessingManual || isAutoGenerating || !seedPhrasesInput.trim()}
             className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground"
-            aria-label="Fetch ETH Balances Button"
+            aria-label="Fetch Balances Button"
           >
             {isProcessingManual && !isAutoGenerating && currentGenerationStatus !== 'Running' && currentGenerationStatus !== 'Paused' ? (
               <>
@@ -548,7 +548,7 @@ export default function Home() {
             ) : (
               <>
                 <SearchCheck className="mr-2 h-4 w-4" />
-                Fetch ETH Balances ({getFetchButtonText()})
+                Fetch Balances ({getFetchButtonTextSuffix()})
               </>
             )}
           </Button>
@@ -569,7 +569,7 @@ export default function Home() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><ListChecks className="h-5 w-5" /> Manual Seed Phrase Generation</CardTitle>
           <CardDescription>
-            Manually generate a specific number of random seed phrases (varying lengths: 12, 15, 18, 21, 24 words) and check their ETH balances using the API keys above.
+            Manually generate a specific number of random seed phrases (varying lengths: 12, 15, 18, 21, 24 words) and check their balances using the API keys above.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -682,7 +682,7 @@ export default function Home() {
       {results.length > 0 && (
         <Card className="shadow-md">
           <CardHeader>
-            <CardTitle>ETH Balance Results (Wallets with Balance &gt; 0)</CardTitle>
+            <CardTitle>Balance Results (Wallets with Balance &gt; 0)</CardTitle>
             <CardDescription>
               Etherscan API (masked): {etherscanApiKeyInput.trim() ? maskValue(etherscanApiKeyInput, 4, 4) : 'N/A'}.
               BlockCypher API (masked): {blockcypherApiKeyInput.trim() ? maskValue(blockcypherApiKeyInput, 4, 4) : 'N/A'}.
@@ -692,7 +692,7 @@ export default function Home() {
           </CardHeader>
           <CardContent>
             <Table>
-              <TableCaption>Derived addresses and their ETH balances. Only wallets with balances &gt; 0 are shown.</TableCaption>
+              <TableCaption>Derived addresses and their balances. Only wallets with balances &gt; 0 are shown.</TableCaption>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[20%]">Seed Phrase (Masked)</TableHead>
@@ -700,7 +700,7 @@ export default function Home() {
                   <TableHead className="w-[25%]">Derived Address (Masked)</TableHead>
                   <TableHead className="w-[15%] text-center">Wallet Type</TableHead>
                   <TableHead className="w-[10%] text-center">Crypto</TableHead>
-                  <TableHead className="w-[10%] text-right">Balance (ETH)</TableHead>
+                  <TableHead className="w-[10%] text-right">Balance</TableHead>
                   <TableHead className="w-[10%] text-center">Data Source</TableHead>
                 </TableRow>
               </TableHeader>
@@ -805,5 +805,3 @@ export default function Home() {
     </div>
   );
 }
-
-    

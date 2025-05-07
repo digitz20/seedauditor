@@ -1,6 +1,6 @@
 'use server';
 /**
- * @fileOverview A flow for generating random seed phrases of various lengths, deriving addresses, and checking their balances using Etherscan, BlockCypher, and Alchemy APIs.
+ * @fileOverview A flow for generating random seed phrases of various lengths, deriving addresses, and checking their balances using Etherscan, BlockCypher, Alchemy, and Blockstream APIs.
  *
  * - generateAndCheckSeedPhrases - A function that handles the seed phrase generation and balance checking process.
  * - GenerateAndCheckSeedPhrasesInput - The input type for the generateAndCheckSeedPhrases function.
@@ -16,18 +16,19 @@ const GenerateAndCheckSeedPhrasesInputSchema = z.object({
   etherscanApiKey: z.string().optional().describe('The Etherscan API key for checking ETH balances.'),
   blockcypherApiKey: z.string().optional().describe('The BlockCypher API key for checking various crypto balances (ETH, BTC, LTC, DOGE, DASH).'),
   alchemyApiKey: z.string().optional().describe('The Alchemy API key for checking various EVM-compatible chain balances (ETH, MATIC, etc.).'),
+  blockstreamApiKey: z.string().optional().describe('The Blockstream API key for checking BTC balances (Note: public API, key usually not needed).'),
 });
 export type GenerateAndCheckSeedPhrasesInput = z.infer<typeof GenerateAndCheckSeedPhrasesInputSchema>;
 
 const BalanceDetailSchema = z.object({
-  cryptoName: z.string().describe('The name/symbol of the cryptocurrency and network if applicable (e.g., ETH, MATIC, ETH (Arbitrum)).'),
+  cryptoName: z.string().describe('The name/symbol of the cryptocurrency and network if applicable (e.g., ETH, MATIC, ETH (Arbitrum), BTC).'),
   balance: z.number().describe('The balance for the derived address in its cryptocurrency.'),
-  dataSource: z.string().describe('The source of the balance data (Etherscan API, BlockCypher API, or N/A).'),
+  dataSource: z.string().describe('The source of the balance data (Etherscan API, BlockCypher API, Alchemy API, Blockstream API, or N/A).'),
 });
 
 const SingleSeedPhraseResultSchema = z.object({
   seedPhrase: z.string().describe('The randomly generated seed phrase.'),
-  derivedAddress: z.string().describe('The derived Ethereum Virtual Machine compatible address.'),
+  derivedAddress: z.string().describe('The derived Ethereum Virtual Machine compatible address. Note: For BTC checks, this EVM address is used, which may not correspond to a standard BTC derivation path from the seed phrase.'),
   walletType: z.string().describe('The type of wallet (e.g., Ethereum Virtual Machine).'),
   balances: z.array(BalanceDetailSchema).describe('An array of balances found for different cryptocurrencies.'),
   wordCount: z.number().describe('The number of words in the seed phrase.'),
@@ -37,7 +38,7 @@ const GenerateAndCheckSeedPhrasesOutputSchema = z.array(SingleSeedPhraseResultSc
 export type GenerateAndCheckSeedPhrasesOutput = z.infer<typeof GenerateAndCheckSeedPhrasesOutputSchema>;
 
 const ALLOWED_WORD_COUNTS: Array<12 | 15 | 18 | 21 | 24> = [12, 15, 18, 21, 24];
-const BLOCKCYPHER_COINS: string[] = ['eth', 'btc', 'ltc', 'doge', 'dash'];
+const BLOCKCYPHER_COINS: string[] = ['eth', 'btc', 'ltc', 'doge', 'dash']; // Removed bch as ethers.js formatUnits might not directly support its decimals and BlockCypher usage with EVM address for BCH is less common.
 
 interface AlchemyChainInfo {
   id: string;
@@ -76,7 +77,8 @@ async function deriveAddressAndCheckBalance(
   wordCount: number,
   etherscanApiKey?: string,
   blockcypherApiKey?: string,
-  alchemyApiKey?: string
+  alchemyApiKey?: string,
+  blockstreamApiKey?: string
 ): Promise<z.infer<typeof SingleSeedPhraseResultSchema> | null> {
   try {
     const wallet = ethers.Wallet.fromPhrase(seedPhrase);
@@ -107,6 +109,7 @@ async function deriveAddressAndCheckBalance(
     if (blockcypherApiKey) {
       for (const coin of BLOCKCYPHER_COINS) {
         try {
+          // Note: BlockCypher for BTC using an EVM address might not be accurate for typical BTC wallets.
           const response = await fetch(`https://api.blockcypher.com/v1/${coin}/main/addrs/${derivedAddress}/balance?token=${blockcypherApiKey}`);
           if (!response.ok) {
             const errorData = await response.json().catch(() => ({ error: `Unknown error parsing BlockCypher error for ${coin.toUpperCase()}` }));
@@ -117,7 +120,7 @@ async function deriveAddressAndCheckBalance(
           const balanceInSmallestUnit = BigInt(data.final_balance || data.balance || 0);
           let balanceCoin = 0;
           if (balanceInSmallestUnit > 0) {
-            const decimals = (coin.toLowerCase() === 'eth') ? 18 : 8;
+            const decimals = (coin.toLowerCase() === 'eth') ? 18 : 8; // Common decimals for BTC, LTC, DOGE, DASH
             balanceCoin = parseFloat(ethers.formatUnits(balanceInSmallestUnit, decimals));
           }
           if (balanceCoin > 0) {
@@ -175,6 +178,41 @@ async function deriveAddressAndCheckBalance(
         }
       }
     }
+
+    // Try Blockstream API (BTC mainnet only)
+    // Note: Blockstream public API usually doesn't require a key.
+    // Using an EVM-derived address for BTC check has limitations.
+    if (blockstreamApiKey !== undefined) { // Check if the param was intended to be used, even if key not functional
+      try {
+        const response = await fetch(`https://blockstream.info/api/address/${derivedAddress}`);
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => "Unknown Blockstream error");
+          if (response.status === 400 && errorText.toLowerCase().includes("invalid bitcoin address")) {
+             console.warn(`Blockstream API: Address ${derivedAddress} is not a valid Bitcoin address.`);
+          } else {
+             console.warn(`Blockstream API error for ${derivedAddress}: ${response.status} ${response.statusText} - ${errorText}`);
+          }
+        } else {
+          const data = await response.json();
+          const fundedSatoshis = BigInt(data.chain_stats?.funded_txo_sum || 0);
+          const spentSatoshis = BigInt(data.chain_stats?.spent_txo_sum || 0);
+          const balanceSatoshis = fundedSatoshis - spentSatoshis;
+          let balanceBtc = 0;
+          if (balanceSatoshis > 0) {
+            balanceBtc = parseFloat(ethers.formatUnits(balanceSatoshis, 8)); // BTC has 8 decimal places
+          }
+          if (balanceBtc > 0) {
+            foundBalances.push({
+              cryptoName: 'BTC',
+              balance: balanceBtc,
+              dataSource: 'Blockstream API',
+            });
+          }
+        }
+      } catch (blockstreamError: any) {
+        console.warn(`Blockstream API error for ${derivedAddress}: ${blockstreamError.message}.`);
+      }
+    }
     
     if (foundBalances.length > 0) {
       return {
@@ -208,11 +246,11 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
     outputSchema: GenerateAndCheckSeedPhrasesOutputSchema,
   },
   async (input) => {
-    const { numSeedPhrases, etherscanApiKey, blockcypherApiKey, alchemyApiKey } = input;
+    const { numSeedPhrases, etherscanApiKey, blockcypherApiKey, alchemyApiKey, blockstreamApiKey } = input;
     const results: GenerateAndCheckSeedPhrasesOutput = [];
 
-    if (!etherscanApiKey && !blockcypherApiKey && !alchemyApiKey) {
-        console.warn("No API keys provided for generateAndCheckSeedPhrasesFlow. Balances will not be fetched realistically.");
+    if (!etherscanApiKey && !blockcypherApiKey && !alchemyApiKey && blockstreamApiKey === undefined) {
+        console.warn("No API keys/indicators provided for generateAndCheckSeedPhrasesFlow. Balances will not be fetched realistically.");
     }
 
     let phrasesGeneratedAndChecked = 0;
@@ -223,16 +261,15 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
       const seedPhrase = generateRandomSeedPhrase(currentWordCount);
       phrasesGeneratedAndChecked++;
       
-      if (etherscanApiKey || blockcypherApiKey || alchemyApiKey) {
+      if (etherscanApiKey || blockcypherApiKey || alchemyApiKey || blockstreamApiKey !== undefined) {
         const result = await deriveAddressAndCheckBalance(
             seedPhrase,
             currentWordCount,
             etherscanApiKey,
             blockcypherApiKey,
-            alchemyApiKey
+            alchemyApiKey,
+            blockstreamApiKey
         );
-        // Only add to results if the 'result' itself is not null (meaning derivation was successful)
-        // AND it has at least one balance entry with balance > 0.
         if (result && result.balances.length > 0 && result.balances.some(b => b.balance > 0)) {
           results.push(result);
         }
@@ -242,3 +279,5 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
     return results;
   }
 );
+
+    

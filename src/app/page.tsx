@@ -16,7 +16,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Activity, Terminal, Loader2, Wallet, Network, Coins, Copy, Eraser, Trash2, KeyRound, Info, ExternalLink, SearchCheck, ShieldAlert, DatabaseZap, Pause, Play, Square, Settings2, ListChecks, ScrollText, PlusCircle } from 'lucide-react';
+import { Activity, Terminal, Loader2, Wallet, Network, Coins, Copy, Eraser, Trash2, KeyRound, Info, ExternalLink, SearchCheck, ShieldAlert, DatabaseZap, Pause, Play, Square, Settings2, ListChecks, ScrollText, PlusCircle, Bitcoin } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -28,13 +28,11 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 interface ResultRow extends Omit<ProcessedWalletInfo, 'balanceData' | 'cryptoName'> {
   isLoading: boolean;
   wordCount?: number;
-  // Store all balances
   balanceData: AddressBalanceResult[] | null; 
-  // For display purposes, we'll pick the first non-zero balance's cryptoName.
   displayCryptoName?: string | null; 
   displayBalance?: number | null;
   displayDataSource?: AddressBalanceResult['dataSource'] | null;
-  numOtherBalances?: number; // Number of other positive balances not displayed
+  numOtherBalances?: number; 
 }
 
 
@@ -45,6 +43,8 @@ export default function Home() {
   const [etherscanApiKeyInput, setEtherscanApiKeyInput] = useState<string>(process.env.NEXT_PUBLIC_ETHERSCAN_API_KEY || 'ZKPID4755Q9BJZVXXZ96M3N6RSXYE7NTRV');
   const [blockcypherApiKeyInput, setBlockcypherApiKeyInput] = useState<string>(process.env.NEXT_PUBLIC_BLOCKCYPHER_API_KEY || '41ccb7c601ef4bad99b3698cfcea9a8c');
   const [alchemyApiKeyInput, setAlchemyApiKeyInput] = useState<string>(process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || 'p4UZuRIRutN5yn06iKDjOcAX2nB75ZRp');
+  const [blockstreamApiKeyInput, setBlockstreamApiKeyInput] = useState<string>(process.env.NEXT_PUBLIC_BLOCKSTREAM_API_KEY || 'bhdkd789399dkjhdyyei98993okllejjejii87889ekkdjh'); // Added Blockstream API key state
+
   const [results, setResults] = useState<ResultRow[]>([]);
   const [isProcessingManual, setIsProcessingManual] = useState<boolean>(false);
   const [numSeedPhrasesToGenerate, setNumSeedPhrasesToGenerate] = useState<number>(10);
@@ -66,6 +66,7 @@ export default function Home() {
   const etherscanApiKeyInputRef = useRef(etherscanApiKeyInput);
   const blockcypherApiKeyInputRef = useRef(blockcypherApiKeyInput);
   const alchemyApiKeyInputRef = useRef(alchemyApiKeyInput);
+  const blockstreamApiKeyInputRef = useRef(blockstreamApiKeyInput); // Added Blockstream API key ref
 
 
   useEffect(() => { isAutoGeneratingRef.current = isAutoGenerating; }, [isAutoGenerating]);
@@ -74,6 +75,7 @@ export default function Home() {
   useEffect(() => { etherscanApiKeyInputRef.current = etherscanApiKeyInput; }, [etherscanApiKeyInput]);
   useEffect(() => { blockcypherApiKeyInputRef.current = blockcypherApiKeyInput; }, [blockcypherApiKeyInput]);
   useEffect(() => { alchemyApiKeyInputRef.current = alchemyApiKeyInput; }, [alchemyApiKeyInput]);
+  useEffect(() => { blockstreamApiKeyInputRef.current = blockstreamApiKeyInput; }, [blockstreamApiKeyInput]); // Added Blockstream API key effect
 
 
   const addLogMessage = useCallback((message: string) => {
@@ -88,7 +90,7 @@ export default function Home() {
       let firstRealPositiveBalance: AddressBalanceResult | undefined;
       let allPositiveBalances: AddressBalanceResult[] = [];
       let wordCountVal: number;
-      let itemBalances: any[] = []; // To hold either item.balanceData or item.balances
+      let itemBalances: any[] = []; 
 
       if (isFromFlow) {
         const flowItem = item as FlowSingleSeedPhraseResultSchema;
@@ -99,7 +101,7 @@ export default function Home() {
                 address: flowItem.derivedAddress,
                 balance: b.balance,
                 currency: b.cryptoName,
-                isRealData: ['Etherscan API', 'BlockCypher API', 'Alchemy API'].includes(b.dataSource),
+                isRealData: ['Etherscan API', 'BlockCypher API', 'Alchemy API', 'Blockstream API'].includes(b.dataSource),
                 dataSource: b.dataSource as AddressBalanceResult['dataSource'],
             }));
         wordCountVal = flowItem.wordCount;
@@ -116,12 +118,12 @@ export default function Home() {
         seedPhrase: item.seedPhrase,
         derivedAddress: item.derivedAddress,
         walletType: item.walletType,
-        balanceData: itemBalances.map(b => ({ // Store all original balances correctly mapped
+        balanceData: itemBalances.map(b => ({ 
              address: item.derivedAddress,
              balance: b.balance,
-             currency: b.currency || b.cryptoName, // Adapt based on source structure
-             isRealData: b.isRealData !== undefined ? b.isRealData : ['Etherscan API', 'BlockCypher API', 'Alchemy API'].includes(b.dataSource),
-             dataSource: b.dataSource as AddressBalanceResult['dataSource'],
+             currency: item.currency || item.cryptoName, 
+             isRealData: item.isRealData !== undefined ? item.isRealData : ['Etherscan API', 'BlockCypher API', 'Alchemy API', 'Blockstream API'].includes(item.dataSource),
+             dataSource: item.dataSource as AddressBalanceResult['dataSource'],
         })),
         error: item.error || null,
         derivationError: item.derivationError || null,
@@ -151,14 +153,15 @@ export default function Home() {
       return;
     }
 
-    const hasEtherscanKey = etherscanApiKeyInput.trim();
-    const hasBlockcypherKey = blockcypherApiKeyInput.trim();
-    const hasAlchemyKey = alchemyApiKeyInput.trim();
+    const hasEtherscanKey = etherscanApiKeyInputRef.current.trim();
+    const hasBlockcypherKey = blockcypherApiKeyInputRef.current.trim();
+    const hasAlchemyKey = alchemyApiKeyInputRef.current.trim();
+    const hasBlockstreamKey = blockstreamApiKeyInputRef.current.trim(); // Check for Blockstream key presence
     
-    if (!hasEtherscanKey && !hasBlockcypherKey && !hasAlchemyKey) {
+    if (!hasEtherscanKey && !hasBlockcypherKey && !hasAlchemyKey && !hasBlockstreamKey) {
       toast({
         title: 'API Key Recommended for Real Balances',
-        description: 'Provide Etherscan, BlockCypher, or Alchemy API key. Manual checks without keys will show N/A or errors, and no balances will be found.',
+        description: 'Provide at least one API key (Etherscan, BlockCypher, Alchemy, or Blockstream). Manual checks without keys will show N/A or errors, and no balances will be found.',
         variant: 'default',
       });
     }
@@ -201,7 +204,8 @@ export default function Home() {
         validPhrases,
         etherscanApiKeyInputRef.current || undefined,
         blockcypherApiKeyInputRef.current || undefined,
-        alchemyApiKeyInputRef.current || undefined
+        alchemyApiKeyInputRef.current || undefined,
+        blockstreamApiKeyInputRef.current || undefined // Pass Blockstream key
       );
       
       const finalResults = processAndSetDisplayBalances(processedDataFromAction, false);
@@ -211,7 +215,7 @@ export default function Home() {
       let toastMessage = `Finished processing ${phrases.length} seed phrases. `;
       toastMessage += `Found ${finalResults.length} wallet(s) with at least one non-zero balance.`;
       
-      if (!hasEtherscanKey && !hasBlockcypherKey && !hasAlchemyKey && phrases.length > 0) {
+      if (!hasEtherscanKey && !hasBlockcypherKey && !hasAlchemyKey && !hasBlockstreamKey && phrases.length > 0) {
         toastMessage += ' No API keys were provided, so no real balances could be fetched.';
       }
 
@@ -234,10 +238,10 @@ export default function Home() {
   };
 
   const handleManualGenerateAndCheck = async () => {
-    if (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current) {
+    if (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current && !blockstreamApiKeyInputRef.current) {
       toast({
         title: 'API Key(s) Required',
-        description: 'Please provide at least one API key (Etherscan, BlockCypher, or Alchemy) for the generator to fetch real balances.',
+        description: 'Please provide at least one API key (Etherscan, BlockCypher, Alchemy, or Blockstream) for the generator to fetch real balances.',
         variant: 'destructive',
       });
       return;
@@ -250,6 +254,7 @@ export default function Home() {
         etherscanApiKey: etherscanApiKeyInputRef.current || undefined,
         blockcypherApiKey: blockcypherApiKeyInputRef.current || undefined,
         alchemyApiKey: alchemyApiKeyInputRef.current || undefined,
+        blockstreamApiKey: blockstreamApiKeyInputRef.current || undefined, // Pass Blockstream key
       };
 
       const generatedDataFromFlow: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
@@ -301,12 +306,12 @@ export default function Home() {
     
     setCurrentGenerationStatus('Running'); 
 
-    if (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current) {
+    if (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current && !blockstreamApiKeyInputRef.current) {
       addLogMessage('Auto-generation stopped: At least one API key is required to check real balances.');
       stopAutoGenerating(); 
       toast({
         title: 'API Key(s) Required for Auto-Generation',
-        description: 'Please provide at least one API key (Etherscan, BlockCypher, or Alchemy) to start auto-generation.',
+        description: 'Please provide at least one API key (Etherscan, BlockCypher, Alchemy or Blockstream) to start auto-generation.',
         variant: 'destructive',
       });
       return;
@@ -321,10 +326,11 @@ export default function Home() {
         etherscanApiKey: etherscanApiKeyInputRef.current || undefined,
         blockcypherApiKey: blockcypherApiKeyInputRef.current || undefined,
         alchemyApiKey: alchemyApiKeyInputRef.current || undefined,
+        blockstreamApiKey: blockstreamApiKeyInputRef.current || undefined, // Pass Blockstream key
       };
 
       const generatedDataFromFlow: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
-      processedResultsFromFlow = processAndSetDisplayBalances(generatedDataFromFlow, true); // Renamed to avoid conflict
+      processedResultsFromFlow = processAndSetDisplayBalances(generatedDataFromFlow, true); 
             
       setCheckedPhrasesCount(prevCount => prevCount + currentNumToGenerate);
       
@@ -416,7 +422,7 @@ export default function Home() {
     if (!currencySymbol) return '?';
     const upperSymbol = currencySymbol.toUpperCase();
     if (upperSymbol.includes('ETH')) return 'Ξ';
-    if (upperSymbol.includes('BTC')) return '₿';
+    if (upperSymbol.includes('BTC')) return <Bitcoin className="h-3 w-3"/>; // Use Lucide Bitcoin icon
     if (upperSymbol.includes('LTC')) return 'Ł';
     if (upperSymbol.includes('DOGE')) return 'Ð';
     if (upperSymbol.includes('DASH')) return 'D';
@@ -455,6 +461,8 @@ export default function Home() {
         return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-800 dark:bg-blue-800/30 dark:text-blue-300">BlockCypher</span>;
       case 'Alchemy API':
         return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-100 text-purple-800 dark:bg-purple-800/30 dark:text-purple-300">Alchemy</span>;
+      case 'Blockstream API':
+        return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-100 text-orange-800 dark:bg-orange-800/30 dark:text-orange-300">Blockstream</span>;
       case 'Simulated Fallback': 
          return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-800/30 dark:text-amber-300">Simulated</span>;
       case 'N/A':
@@ -469,11 +477,13 @@ export default function Home() {
     if (etherscanApiKeyInputRef.current?.trim()) keys.push('Etherscan');
     if (blockcypherApiKeyInputRef.current?.trim()) keys.push('BlockCypher');
     if (alchemyApiKeyInputRef.current?.trim()) keys.push('Alchemy');
+    if (blockstreamApiKeyInputRef.current?.trim()) keys.push('Blockstream'); // Add Blockstream to the list
     
     if (keys.length === 0) return ' (No API Keys - Manual Check Ineffective)';
     if (keys.length === 1) return ` (Use ${keys[0]} API)`;
     if (keys.length === 2) return ` (Use ${keys.join(' & ')} APIs)`;
-    return ' (Use All API Keys)';
+    if (keys.length === 3) return ` (Use ${keys.slice(0, -1).join(', ')} & ${keys.slice(-1)} APIs)`;
+    return ' (Use All Configured APIs)';
   };
   
 
@@ -484,7 +494,7 @@ export default function Home() {
           <Wallet className="h-8 w-8" /> Balance Auditor
         </h1>
         <p className="text-muted-foreground">
-          Enter seed phrases and API keys to derive EVM addresses and fetch real balances across multiple supported chains. Or, use the automatic generator.
+          Enter seed phrases and API keys to derive EVM addresses and fetch real balances across multiple supported chains and cryptocurrencies. Or, use the automatic generator.
         </p>
       </header>
 
@@ -495,15 +505,16 @@ export default function Home() {
           <strong>NEVER enter REAL seed phrases from wallets with significant funds into ANY online tool you do not fully trust and haven't audited.</strong>
           This application is for demonstration and educational purposes.
           <ul className="list-disc pl-5 mt-2 space-y-1">
-            <li>It uses <code>ethers.js</code> for LOCAL address derivation (EVM-compatible). Your seed phrases are NOT sent to any server for derivation.</li>
+            <li>It uses <code>ethers.js</code> for LOCAL address derivation (primarily EVM-compatible). Your seed phrases are NOT sent to any server for derivation.</li>
             <li>It WILL attempt to use provided API keys to fetch REAL balances:
                 <ul className="list-disc pl-5 mt-1">
                     <li><strong>Etherscan:</strong> For Ethereum (ETH) mainnet.</li>
                     <li><strong>BlockCypher:</strong> For ETH, BTC, LTC, DOGE, DASH (using the derived EVM address for all queries).</li>
                     <li><strong>Alchemy:</strong> For various EVM-compatible chains like Ethereum, Polygon, Arbitrum, Optimism, Base.</li>
+                    <li><strong>Blockstream:</strong> For Bitcoin (BTC) mainnet (using the derived EVM address for queries - accuracy for BTC may vary). Public API, key is for reference.</li>
                 </ul>
             </li>
-            <li>Addresses derived are EVM-compatible. Querying non-EVM chains (e.g., BTC via BlockCypher) with an EVM address may not yield expected results for those specific non-EVM assets but is attempted.</li>
+            <li>Addresses derived are EVM-compatible. Querying non-EVM chains (e.g., BTC via BlockCypher/Blockstream) with an EVM address may not yield expected results for those specific non-EVM assets but is attempted. For accurate BTC balances from a seed phrase, a Bitcoin-specific derivation path (e.g., BIP44, BIP49, BIP84) and address generation is required, which is beyond the current scope for the seed phrase input method.</li>
             <li>If API keys are missing, invalid, rate-limited, or calls fail, results may show 0 balance or "N/A" datasource. Manual checks without keys are ineffective for real balances.</li>
             <li>The automatic generator REQUIRES at least one API key to function and find real balances.</li>
             <li><strong>Exposing real seed phrases can lead to PERMANENT LOSS OF FUNDS. Pre-filled API keys are for demonstration and may be rate-limited or revoked. Use your own keys for reliable use.</strong></li>
@@ -518,7 +529,7 @@ export default function Home() {
             Provide seed phrases (one per line, up to 1000) and your API keys. At least one API key is needed for the automatic generator to find real balances.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
           <div className="md:col-span-2 lg:col-span-1 space-y-3">
             <Textarea
               placeholder="Paste your seed phrases here, one per line..."
@@ -596,6 +607,24 @@ export default function Home() {
               </AlertDescription>
             </Alert>
           </div>
+           <div className="space-y-3">
+            <Input
+              type="password"
+              placeholder="Enter Blockstream 'API Key' (Informational)"
+              value={blockstreamApiKeyInput}
+              onChange={(e) => setBlockstreamApiKeyInput(e.target.value)}
+              className="text-sm border-input focus:ring-accent focus:border-accent font-mono"
+              disabled={isProcessingManual || isAutoGenerating}
+              aria-label="Blockstream API Key Input (Informational)"
+            />
+            <Alert variant="info" className="text-xs mt-2">
+              <DatabaseZap className="h-4 w-4" />
+              <AlertTitle className="font-semibold">Blockstream API</AlertTitle>
+              <AlertDescription>
+                For Bitcoin (BTC) mainnet balances. (Note: Public API, key is informational and typically not required for balance checks. Uses EVM address.)
+              </AlertDescription>
+            </Alert>
+          </div>
         </CardContent>
         <CardFooter className="flex flex-col sm:flex-row gap-2 pt-4 border-t">
           <Button
@@ -653,7 +682,7 @@ export default function Home() {
         <CardFooter className="flex flex-col sm:flex-row gap-2 pt-4 border-t">
           <Button
             onClick={handleManualGenerateAndCheck}
-            disabled={isProcessingManual || isAutoGenerating || (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current)}
+            disabled={isProcessingManual || isAutoGenerating || (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current && !blockstreamApiKeyInputRef.current)}
             className="w-full sm:w-auto bg-accent hover:bg-accent/90 text-accent-foreground"
             aria-label="Manual Generate and Check Seed Phrases Button"
           >
@@ -701,7 +730,7 @@ export default function Home() {
             {!isAutoGenerating || isAutoGenerationPaused ? (
               <Button
                 onClick={startAutoGenerating}
-                disabled={isProcessingManual || (isAutoGenerating && !isAutoGenerationPaused) || (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current)}
+                disabled={isProcessingManual || (isAutoGenerating && !isAutoGenerationPaused) || (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current && !blockstreamApiKeyInputRef.current)}
                 className="bg-green-600 hover:bg-green-700 text-white w-28"
                 aria-label={isAutoGenerationPaused ? "Resume Generating" : "Start Generating"}
               >
@@ -753,6 +782,7 @@ export default function Home() {
               Etherscan API (masked): {etherscanApiKeyInputRef.current?.trim() ? maskValue(etherscanApiKeyInputRef.current, 4, 4) : 'N/A'}.
               BlockCypher API (masked): {blockcypherApiKeyInputRef.current?.trim() ? maskValue(blockcypherApiKeyInputRef.current, 4, 4) : 'N/A'}.
               Alchemy API (masked): {alchemyApiKeyInputRef.current?.trim() ? maskValue(alchemyApiKeyInputRef.current, 4, 4) : 'N/A'}.
+              Blockstream API (masked): {blockstreamApiKeyInputRef.current?.trim() ? maskValue(blockstreamApiKeyInputRef.current, 4, 4) : 'N/A (Public API)'}.
               Displaying up to {MAX_DISPLAYED_RESULTS} results with at least one non-zero balance from a real API (newest first). 
               Showing first asset found; others indicated by (+X).
             </CardDescription>
@@ -809,7 +839,7 @@ export default function Home() {
                             <Copy className="h-3 w-3" />
                           </Button>
                           <a href={ 
-                            result.displayCryptoName?.toUpperCase() === "BTC" ? `https://www.blockchain.com/explorer/addresses/btc/${result.derivedAddress}` : 
+                            result.displayCryptoName?.toUpperCase() === "BTC" ? `https://blockstream.info/address/${result.derivedAddress}` : 
                             result.displayCryptoName?.toUpperCase() === "LTC" ? `https://live.blockcypher.com/ltc/address/${result.derivedAddress}/` :
                             result.displayCryptoName?.toUpperCase() === "DOGE" ? `https://dogechain.info/address/${result.derivedAddress}` :
                             result.displayCryptoName?.toUpperCase() === "DASH" ? `https://explorer.dash.org/address/${result.derivedAddress}` :
@@ -862,7 +892,7 @@ export default function Home() {
                           <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full bg-green-500/20 text-green-700 dark:text-green-400 text-[10px] font-bold shrink-0`}>
                             {getCurrencyIcon(result.displayCryptoName)}
                           </span>
-                          {result.displayBalance.toFixed(6)}{' '}
+                          {result.displayBalance.toFixed(result.displayCryptoName?.toUpperCase() === 'BTC' ? 8 : 6)}{' '}
                           <span className="text-muted-foreground text-[10px] shrink-0">{result.displayCryptoName?.split(' ')[0]}</span>
                         </span>
                       ) : !result.isLoading && result.balanceData && result.balanceData.length > 0 && result.balanceData.every(b => b.balance === 0) ? (
@@ -895,3 +925,5 @@ export default function Home() {
     </div>
   );
 }
+
+    

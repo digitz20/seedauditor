@@ -1,4 +1,3 @@
-
 'use server';
 /**
  * @fileOverview Flow for generating random seed phrases, deriving addresses, and checking balances.
@@ -29,7 +28,7 @@ const FlowBalanceResultSchema = z.object({
 export type FlowBalanceResult = z.infer<typeof FlowBalanceResultSchema>;
 
 // Schema for the result of a single seed phrase check by the flow
-export const SingleSeedPhraseResultSchema = z.object({
+const SingleSeedPhraseResultSchema = z.object({
   seedPhrase: z.string().describe('The generated seed phrase.'),
   wordCount: z.number().int().describe('Number of words in the seed phrase (12, 15, 18, 21, or 24).'),
   derivedAddress: z.string().nullable().describe('The EVM-compatible address derived from the seed phrase.'),
@@ -41,7 +40,7 @@ export const SingleSeedPhraseResultSchema = z.object({
 export type SingleSeedPhraseResult = z.infer<typeof SingleSeedPhraseResultSchema>;
 
 // Input schema for the Genkit flow
-export const GenerateAndCheckSeedPhrasesInputSchema = z.object({
+const GenerateAndCheckSeedPhrasesInputSchema = z.object({
   numSeedPhrases: z.number().int().min(1).max(100).describe('Number of seed phrases to generate and check (1-100).'),
   etherscanApiKey: z.string().optional().describe('Optional Etherscan API key.'),
   blockcypherApiKey: z.string().optional().describe('Optional BlockCypher API key.'),
@@ -51,7 +50,7 @@ export const GenerateAndCheckSeedPhrasesInputSchema = z.object({
 export type GenerateAndCheckSeedPhrasesInput = z.infer<typeof GenerateAndCheckSeedPhrasesInputSchema>;
 
 // Output schema for the Genkit flow, an array of single seed phrase results
-export const GenerateAndCheckSeedPhrasesOutputSchema = z.array(SingleSeedPhraseResultSchema);
+const GenerateAndCheckSeedPhrasesOutputSchema = z.array(SingleSeedPhraseResultSchema);
 export type GenerateAndCheckSeedPhrasesOutput = z.infer<typeof GenerateAndCheckSeedPhrasesOutputSchema>;
 
 

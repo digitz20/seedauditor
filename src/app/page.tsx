@@ -1,4 +1,3 @@
-
 // @ts-nocheck
 'use client';
 
@@ -38,6 +37,7 @@ interface ResultRow extends Omit<ProcessedWalletInfo, 'balanceData' | 'cryptoNam
 
 
 const MAX_DISPLAYED_RESULTS = 500; 
+const MAX_LOGS = 100;
 
 export default function Home() {
   const [seedPhrasesInput, setSeedPhrasesInput] = useState<string>('');
@@ -62,7 +62,6 @@ export default function Home() {
   const [checkedPhrasesCount, setCheckedPhrasesCount] = useState<number>(0);
   const [currentGenerationStatus, setCurrentGenerationStatus] = useState<'Stopped' | 'Running' | 'Paused'>('Stopped');
   const [generationLogs, setGenerationLogs] = useState<string[]>([]);
-  const MAX_LOGS = 100;
   
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -91,7 +90,7 @@ export default function Home() {
     });
   }, []);
 
-  const processAndSetDisplayBalances = (data: ProcessedWalletInfo[] | GenerateAndCheckSeedPhrasesOutput, isFromFlow: boolean = false): ResultRow[] => {
+  const processAndSetDisplayBalances = useCallback((data: ProcessedWalletInfo[] | GenerateAndCheckSeedPhrasesOutput, isFromFlow: boolean = false): ResultRow[] => {
     return data.map(item => {
       let firstRealPositiveBalance: AddressBalanceResult | FlowBalanceResult | undefined;
       let allPositiveBalances: (AddressBalanceResult | FlowBalanceResult)[] = [];
@@ -100,13 +99,12 @@ export default function Home() {
 
       if (isFromFlow) {
         const flowItem = item as FlowSingleSeedPhraseResult;
-        itemBalances = flowItem.balances || []; // This is already FlowBalanceResult[]
-        // Filter for positive balances (no need to check isRealData as flow output already filters for it)
+        itemBalances = flowItem.balances || []; 
         allPositiveBalances = itemBalances.filter(b => b.balance > 0);
         wordCountVal = flowItem.wordCount;
       } else { 
         const actionItem = item as ProcessedWalletInfo;
-        itemBalances = actionItem.balanceData || []; // This is AddressBalanceResult[]
+        itemBalances = actionItem.balanceData || []; 
         allPositiveBalances = itemBalances.filter(bal => bal.balance > 0 && bal.isRealData);
         wordCountVal = actionItem.seedPhrase.split(' ').length;
       }
@@ -117,18 +115,18 @@ export default function Home() {
         seedPhrase: item.seedPhrase,
         derivedAddress: item.derivedAddress,
         walletType: item.walletType,
-        balanceData: itemBalances, // This will be either AddressBalanceResult[] or FlowBalanceResult[]
+        balanceData: itemBalances, 
         error: item.error || null,
         derivationError: item.derivationError || null,
         isLoading: false,
         wordCount: wordCountVal,
-        displayCryptoName: firstRealPositiveBalance?.currency, // Use .currency for flow items as well
+        displayCryptoName: firstRealPositiveBalance?.currency, 
         displayBalance: firstRealPositiveBalance?.balance,
         displayDataSource: firstRealPositiveBalance?.dataSource as AddressBalanceResult['dataSource'] | FlowBalanceResult['dataSource'],
         numOtherBalances: allPositiveBalances.length > 1 ? allPositiveBalances.length - 1 : 0,
       };
     });
-  };
+  }, []);
 
 
   const handleFetchBalances = async () => {
@@ -202,7 +200,6 @@ export default function Home() {
       );
       
       const finalResults = processAndSetDisplayBalances(processedDataFromAction, false);
-      // Filter final results to only include those with positive balances or errors, as per flow's logic
       const displayableResults = finalResults.filter(r => (r.displayBalance && r.displayBalance > 0) || r.error || r.derivationError);
       setResults(displayableResults);
 
@@ -253,7 +250,6 @@ export default function Home() {
       };
 
       const generatedDataFromFlow: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
-      // The flow already filters for positive balances, so no need for extra filtering here.
       const processedResults = processAndSetDisplayBalances(generatedDataFromFlow, true);
       
       addLogMessage(`Manual generation: Received ${processedResults.length} phrases with balance from ${numSeedPhrasesToGenerateRef.current} generated.`);
@@ -292,6 +288,37 @@ export default function Home() {
     });
   };
 
+  const stopAutoGenerating = useCallback(() => {
+    if (!isAutoGeneratingRef.current) return;
+    addLogMessage('Stopped automatic seed phrase generation.');
+    setIsAutoGenerating(false);
+    setIsAutoGenerationPaused(false);
+    setCurrentGenerationStatus('Stopped');
+
+    isAutoGeneratingRef.current = false;
+    isAutoGenerationPausedRef.current = false;
+
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  }, [addLogMessage]);
+
+  const pauseAutoGenerating = useCallback(() => {
+    if (!isAutoGeneratingRef.current || isAutoGenerationPausedRef.current) return;
+    addLogMessage('Pausing automatic seed phrase generation.');
+    setIsAutoGenerationPaused(true);
+    setCurrentGenerationStatus('Paused');
+
+    isAutoGenerationPausedRef.current = true;
+
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  }, [addLogMessage]);
+
+
   const runAutoGenerationStep = useCallback(async () => {
     if (!isAutoGeneratingRef.current || isAutoGenerationPausedRef.current) {
       setCurrentGenerationStatus(isAutoGenerationPausedRef.current ? 'Paused' : 'Stopped');
@@ -326,7 +353,6 @@ export default function Home() {
       };
 
       const generatedDataFromFlow: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
-      // The flow now only returns results with positive balances
       processedResultsFromFlow = processAndSetDisplayBalances(generatedDataFromFlow, true); 
             
       setCheckedPhrasesCount(prevCount => prevCount + currentNumToGenerate);
@@ -341,17 +367,21 @@ export default function Home() {
       addLogMessage(`Error in generation batch: ${error.message}`);
        if (error.message?.includes("rate limit") || error.message?.includes("API key quota exceeded") || error.message?.includes("blocked") || error.status === 429) {
         addLogMessage("Rate limit or block likely hit. Pausing generation for 1 minute.");
-        pauseAutoGenerating(); // This will set isAutoGenerationPausedRef.current = true
-        // Clear existing timeout before setting a new one for resume
+        pauseAutoGenerating(); 
         if (timeoutRef.current) clearTimeout(timeoutRef.current);
         timeoutRef.current = setTimeout(() => {
-          // Only resume if it was PAUSED by this rate limit logic and STILL auto-generating conceptually
           if(isAutoGeneratingRef.current && isAutoGenerationPausedRef.current) { 
              addLogMessage("Attempting to resume auto-generation after rate limit pause.");
-             startAutoGenerating(); // This will set isAutoGenerationPausedRef.current = false
+             // Instead of calling startAutoGenerating, we reset paused state and let the main loop continue
+             setIsAutoGenerationPaused(false);
+             isAutoGenerationPausedRef.current = false;
+             // Trigger the next step directly if not already queued by main loop
+             if (timeoutRef.current === null) { // Check if already scheduled
+                runAutoGenerationStep();
+             }
           }
         }, 60000); 
-        return; // Important: exit to prevent immediate re-queue if rate limit occurred
+        return; 
       }
     }
 
@@ -363,66 +393,32 @@ export default function Home() {
        if (timeoutRef.current) clearTimeout(timeoutRef.current);
        timeoutRef.current = null;
     }
-  }, [addLogMessage, checkedPhrasesCount, toast, processAndSetDisplayBalances, stopAutoGenerating, pauseAutoGenerating, startAutoGenerating]);
+  }, [addLogMessage, checkedPhrasesCount, toast, processAndSetDisplayBalances, stopAutoGenerating, pauseAutoGenerating]);
 
-  const startAutoGenerating = () => {
+
+  const startAutoGenerating = useCallback(() => {
     const wasPaused = isAutoGenerationPausedRef.current;
     if (!isAutoGeneratingRef.current || wasPaused) {
         addLogMessage(wasPaused ? 'Resuming automatic seed phrase generation...' : 'Starting automatic seed phrase generation...');
-        if (!wasPaused) setCheckedPhrasesCount(0); // Reset count only if starting fresh
+        if (!wasPaused) setCheckedPhrasesCount(0); 
     }
     
     setIsAutoGenerating(true);
     setIsAutoGenerationPaused(false); 
     setCurrentGenerationStatus('Running');
     
-    // Critical: Ensure refs are updated immediately for the runAutoGenerationStep callback
     isAutoGeneratingRef.current = true;
     isAutoGenerationPausedRef.current = false;
 
-    if (timeoutRef.current) clearTimeout(timeoutRef.current); // Clear any existing timeout
-    runAutoGenerationStep(); // Start the loop
-  };
-
-  const pauseAutoGenerating = () => {
-    if (!isAutoGeneratingRef.current || isAutoGenerationPausedRef.current) return;
-    addLogMessage('Pausing automatic seed phrase generation.');
-    setIsAutoGenerationPaused(true); 
-    setCurrentGenerationStatus('Paused');
-
-    // Critical: Ensure ref is updated
-    isAutoGenerationPausedRef.current = true; 
-    
-     if (timeoutRef.current) { 
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-  };
-
-  const stopAutoGenerating = () => {
-    if (!isAutoGeneratingRef.current) return; // Don't do anything if not running
-    addLogMessage('Stopped automatic seed phrase generation.');
-    setIsAutoGenerating(false);
-    setIsAutoGenerationPaused(false); 
-    setCurrentGenerationStatus('Stopped');
-    
-    // Critical: Ensure refs are updated
-    isAutoGeneratingRef.current = false;
-    isAutoGenerationPausedRef.current = false;
-
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-  };
+    if (timeoutRef.current) clearTimeout(timeoutRef.current); 
+    runAutoGenerationStep(); 
+  }, [addLogMessage, runAutoGenerationStep]);
   
   useEffect(() => {
-    // Cleanup function to clear timeout when component unmounts
     return () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
-      // Ensure generation is stopped if component unmounts while running
       isAutoGeneratingRef.current = false;
       isAutoGenerationPausedRef.current = false;
     };
@@ -436,7 +432,7 @@ export default function Home() {
     if (upperSymbol.includes('LTC')) return 'Ł';
     if (upperSymbol.includes('DOGE')) return 'Ð';
     if (upperSymbol.includes('DASH')) return 'D';
-    if (upperSymbol.includes('MATIC')) return 'MATIC'.charAt(0); // Or a more specific Matic icon if available
+    if (upperSymbol.includes('MATIC')) return 'MATIC'.charAt(0); 
     return currencySymbol.charAt(0).toUpperCase();
   };
 
@@ -989,3 +985,4 @@ export default function Home() {
 }
 
     
+

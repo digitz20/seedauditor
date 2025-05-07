@@ -119,15 +119,12 @@ export default function Home() {
       }
       
       if (itemDerivationError) {
-        // addLogMessage(`Skipping item with derivation error: ${maskValue(item.seedPhrase, 4, 4)}`); // Already logged in flow/action
         return null;
       }
       if (itemError && allPositiveBalances.length === 0) {
-        //   addLogMessage(`Skipping item with error and no positive balance: ${maskValue(item.seedPhrase, 4,4)}`); // Already logged in flow/action
           return null;
       }
       if(allPositiveBalances.length === 0) {
-        // addLogMessage(`Skipping item with no positive balance: ${maskValue(item.seedPhrase, 4,4)}`); // Already logged in flow/action
         return null;
       }
 
@@ -175,7 +172,7 @@ export default function Home() {
       toast({
         title: 'API Key Recommended for Real Balances',
         description: 'Provide at least one API key. Manual checks without keys will not find any real balances.',
-        variant: 'default', // Changed from warning to default as it's informational
+        variant: 'default', 
       });
     }
 
@@ -207,10 +204,6 @@ export default function Home() {
         return;
     }
 
-
-    // No initial loading results added to the main table for manual input to keep it clean.
-    // Processing happens, then final results are added.
-
     try {
       const processedDataFromAction = await processSeedPhrasesAndFetchBalances(
         validPhrases,
@@ -221,8 +214,7 @@ export default function Home() {
       );
       
       const finalResults = processAndSetDisplayBalances(processedDataFromAction, false);
-      // const displayableResults = finalResults.filter(r => r.displayBalance && r.displayBalance > 0 && !r.derivationError && !(r.error && (!r.balanceData || r.balanceData.length === 0)));
-      const displayableResults = finalResults; // The filtering is now inside processAndSetDisplayBalances
+      const displayableResults = finalResults; 
       
       addLogMessage(`Manual check: Finished. Found ${displayableResults.length} wallet(s) with balance from ${validPhrases.length} valid phrases.`);
       setResults(prevResults => [...displayableResults, ...prevResults].slice(0,MAX_DISPLAYED_RESULTS));
@@ -248,7 +240,6 @@ export default function Home() {
         description: `An unexpected error occurred: ${error.message}. Some results might be incomplete.`,
         variant: 'destructive',
       });
-       // No results to update isLoading for, as they are only added on success
     }
 
     setIsProcessingManual(false);
@@ -289,8 +280,7 @@ export default function Home() {
       }
       
       const processedResults = processAndSetDisplayBalances(generatedDataFromFlow, true);
-      // const actualFoundResults = processedResults.filter(r => r.displayBalance && r.displayBalance > 0 && !r.derivationError && !(r.error && (!r.balanceData || r.balanceData.length === 0)));
-      const actualFoundResults = processedResults; // Filtering is now inside processAndSetDisplayBalances
+      const actualFoundResults = processedResults; 
       
       addLogMessage(`Manual generation: Received ${actualFoundResults.length} phrases with balance from ${numSeedPhrasesToGenerateRef.current} generated.`);
       setResults(prevResults => [...actualFoundResults, ...prevResults].slice(0, MAX_DISPLAYED_RESULTS));
@@ -329,7 +319,7 @@ export default function Home() {
   };
 
   const stopAutoGenerating = useCallback(() => {
-    if (!isAutoGeneratingRef.current) return;
+    if (!isAutoGeneratingRef.current && !isAutoGenerationPausedRef.current) return; // Only stop if it's running or paused
     addLogMessage('Stopped automatic seed phrase generation.');
     setIsAutoGenerating(false);
     setIsAutoGenerationPaused(false);
@@ -350,7 +340,6 @@ export default function Home() {
     addLogMessage('Pausing automatic seed phrase generation.');
     setIsAutoGenerationPaused(true);
     setCurrentGenerationStatus('Paused');
-    // phrasesInBatchDisplay will retain the value of the current batch
 
     isAutoGenerationPausedRef.current = true;
 
@@ -364,7 +353,7 @@ export default function Home() {
   const runAutoGenerationStep = useCallback(async () => {
     if (!isAutoGeneratingRef.current || isAutoGenerationPausedRef.current) {
       setCurrentGenerationStatus(isAutoGenerationPausedRef.current ? 'Paused' : 'Stopped');
-      if (isAutoGenerationPausedRef.current === false) { // If stopped, not just paused
+      if (!isAutoGenerationPausedRef.current) { 
           setPhrasesInBatchDisplay(0);
       }
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -388,15 +377,15 @@ export default function Home() {
       return;
     }
     
-    // Use a functional update for setCheckedPhrasesCount to get the latest state
-    let currentCheckedCount = 0;
-    setCheckedPhrasesCount(prev => {
-        currentCheckedCount = prev;
-        return prev; // No change here, just getting the value
+    let currentCheckedCountVal = 0;
+    setCheckedPhrasesCount(prev => { // Read current value for logging
+        currentCheckedCountVal = prev;
+        return prev; 
     });
 
-    addLogMessage(`Generating batch of ${currentNumToGenerate} seed phrases... (Session total: ${currentCheckedCount})`);
+    addLogMessage(`Generating batch of ${currentNumToGenerate} seed phrases... (Session total before this batch: ${currentCheckedCountVal})`);
     let processedResultsFromFlow = [];
+    let actualFoundResults = [];
     try {
       const input: GenerateAndCheckSeedPhrasesInput = {
         numSeedPhrases: currentNumToGenerate,
@@ -421,14 +410,12 @@ export default function Home() {
       }
       
       processedResultsFromFlow = processAndSetDisplayBalances(generatedDataFromFlow, true); 
-      // const actualFoundResults = processedResultsFromFlow.filter(r => r.displayBalance && r.displayBalance > 0 && !r.derivationError && !(r.error && (!r.balanceData || r.balanceData.length === 0)));
-      const actualFoundResults = processedResultsFromFlow; // Filtering is now inside processAndSetDisplayBalances
+      actualFoundResults = processedResultsFromFlow; 
             
-      //CHECKED_PHRASES_COUNT IS INCREMENTED HERE
       let newTotalChecked = 0;
       setCheckedPhrasesCount(prevCount => {
           newTotalChecked = prevCount + currentNumToGenerate;
-          return newTotalChecked; // Update cumulative session count
+          return newTotalChecked; 
       });
       
       if (actualFoundResults.length > 0) {
@@ -450,7 +437,7 @@ export default function Home() {
              addLogMessage("Attempting to resume auto-generation after rate limit pause.");
              setIsAutoGenerationPaused(false);
              isAutoGenerationPausedRef.current = false;
-             if (timeoutRef.current === null) { // Ensure it wasn't cleared by a stop action
+             if (timeoutRef.current === null) { 
                 runAutoGenerationStep();
              }
           }
@@ -469,11 +456,11 @@ export default function Home() {
     }
 
     if (isAutoGeneratingRef.current && !isAutoGenerationPausedRef.current) {
-      const delay = processedResultsFromFlow && processedResultsFromFlow.length > 0 ? 300 : 500; 
+      const delay = (actualFoundResults.length > 0) ? 300 : 500; 
       timeoutRef.current = setTimeout(runAutoGenerationStep, delay); 
     } else {
        setCurrentGenerationStatus(isAutoGenerationPausedRef.current ? 'Paused' : 'Stopped');
-       if (!isAutoGenerationPausedRef.current) { // Explicitly stopped
+       if (!isAutoGenerationPausedRef.current) { 
             setPhrasesInBatchDisplay(0);
        }
        if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -486,13 +473,12 @@ export default function Home() {
     const wasPaused = isAutoGenerationPausedRef.current;
     const currentBatchSizeSetting = numSeedPhrasesToGenerateRef.current > 0 ? numSeedPhrasesToGenerateRef.current : 1;
 
-    if (!isAutoGeneratingRef.current || wasPaused) {
-        addLogMessage(wasPaused ? 'Resuming automatic seed phrase generation...' : 'Starting automatic seed phrase generation...');
-        if (!wasPaused) {
-            setCheckedPhrasesCount(0); // Reset cumulative session count on a fresh start
-        }
+    addLogMessage(wasPaused ? 'Resuming automatic seed phrase generation...' : 'Starting automatic seed phrase generation...');
+    if (!wasPaused) {
+        setCheckedPhrasesCount(0); 
     }
-    setPhrasesInBatchDisplay(currentBatchSizeSetting); // Set the display based on the input field
+    
+    setPhrasesInBatchDisplay(currentBatchSizeSetting); 
     
     setIsAutoGenerating(true);
     setIsAutoGenerationPaused(false); 
@@ -510,7 +496,6 @@ export default function Home() {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
-      // Cleanup refs on unmount, though they are primarily for controlling active loops
       isAutoGeneratingRef.current = false; 
       isAutoGenerationPausedRef.current = false;
     };
@@ -861,9 +846,17 @@ export default function Home() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="text-center">
-            <p className="text-sm text-muted-foreground mb-1">PHRASES IN CURRENT BATCH</p>
-            <p className="text-5xl font-bold mb-2 text-primary">{phrasesInBatchDisplay}</p>
+          <div className="text-center grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <p className="text-sm text-muted-foreground mb-1">PHRASES IN CURRENT BATCH</p>
+              <p className="text-5xl font-bold text-primary">{phrasesInBatchDisplay}</p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground mb-1">SESSION TOTAL CHECKED</p>
+              <p className="text-5xl font-bold text-primary">{checkedPhrasesCount}</p>
+            </div>
+          </div>
+           <div className="text-center mt-4">
             <p className="text-lg font-semibold">
               Status: <span
                 className={`font-bold ${
@@ -901,7 +894,7 @@ export default function Home() {
             )}
             <Button
               onClick={stopAutoGenerating}
-              disabled={isProcessingManual || !isAutoGenerating}
+              disabled={isProcessingManual || (!isAutoGenerating && !isAutoGenerationPaused) }
               variant="destructive" 
               className="w-28" 
               aria-label="Stop Generating"
@@ -1070,4 +1063,5 @@ export default function Home() {
     
 
     
+
 

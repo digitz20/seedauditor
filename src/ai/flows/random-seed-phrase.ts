@@ -13,9 +13,9 @@ import { ethers } from 'ethers';
 
 const GenerateAndCheckSeedPhrasesInputSchema = z.object({
   numSeedPhrases: z.number().describe('The number of random seed phrases to generate.'),
-  etherscanApiKey: z.string().optional().describe('The Etherscan API key for checking real ETH balances.'),
-  blockcypherApiKey: z.string().optional().describe('The BlockCypher API key for checking real ETH balances.'),
-  alchemyApiKey: z.string().optional().describe('The Alchemy API key for checking real ETH balances.'),
+  etherscanApiKey: z.string().optional().describe('The Etherscan API key for checking ETH balances.'),
+  blockcypherApiKey: z.string().optional().describe('The BlockCypher API key for checking various crypto balances (ETH, BTC, LTC, DOGE, DASH).'),
+  alchemyApiKey: z.string().optional().describe('The Alchemy API key for checking ETH balances.'),
 });
 export type GenerateAndCheckSeedPhrasesInput = z.infer<typeof GenerateAndCheckSeedPhrasesInputSchema>;
 
@@ -23,8 +23,8 @@ const SingleSeedPhraseResultSchema = z.object({
   seedPhrase: z.string().describe('The randomly generated seed phrase.'),
   derivedAddress: z.string().describe('The derived Ethereum address.'),
   walletType: z.string().describe('The type of wallet (e.g., Ethereum Virtual Machine).'),
-  cryptoName: z.string().describe('The name of the cryptocurrency (e.g., ETH).'),
-  balance: z.number().describe('The ETH balance for the derived address.'),
+  cryptoName: z.string().describe('The name of the cryptocurrency (e.g., ETH, BTC).'),
+  balance: z.number().describe('The balance for the derived address in its cryptocurrency.'),
   dataSource: z.string().describe('The source of the balance data (Etherscan, BlockCypher, Alchemy, or N/A).'),
   wordCount: z.number().describe('The number of words in the seed phrase.'),
 });
@@ -33,6 +33,7 @@ const GenerateAndCheckSeedPhrasesOutputSchema = z.array(SingleSeedPhraseResultSc
 export type GenerateAndCheckSeedPhrasesOutput = z.infer<typeof GenerateAndCheckSeedPhrasesOutputSchema>;
 
 const ALLOWED_WORD_COUNTS: Array<12 | 15 | 18 | 21 | 24> = [12, 15, 18, 21, 24];
+const BLOCKCYPHER_COINS: string[] = ['eth', 'btc', 'ltc', 'doge', 'dash']; // Coins BlockCypher supports
 
 // Function to generate a random seed phrase of a given length
 function generateRandomSeedPhrase(wordCount: 12 | 15 | 18 | 21 | 24): string {
@@ -44,7 +45,6 @@ function generateRandomSeedPhrase(wordCount: 12 | 15 | 18 | 21 | 24): string {
     case 21: entropyBytes = 28; break; // 224 bits
     case 24: entropyBytes = 32; break; // 256 bits
     default:
-      // Should not happen if called with allowed word counts
       console.error(`Invalid word count for seed phrase generation: ${wordCount}. Defaulting to 12 words.`);
       entropyBytes = 16;
   }
@@ -60,65 +60,81 @@ async function deriveAddressAndCheckBalance(
   etherscanApiKey?: string,
   blockcypherApiKey?: string,
   alchemyApiKey?: string
-): Promise<{
-  seedPhrase: string;
-  derivedAddress: string;
-  walletType: string;
-  cryptoName: string;
-  balance: number;
-  dataSource: string;
-  wordCount: number;
-} | null> { // Return null if error or no balance
+): Promise<z.infer<typeof SingleSeedPhraseResultSchema> | null> { // Return null if error or no balance
   try {
     const wallet = ethers.Wallet.fromPhrase(seedPhrase);
     const derivedAddress = wallet.address;
-    const walletType = 'Ethereum Virtual Machine'; // Standard for ethers.js derived wallets
-    const cryptoName = 'ETH'; // Assuming Ethereum for now
+    const walletType = 'Ethereum Virtual Machine'; // Standard for ethers.js derived wallets - this remains EVM specific
 
-    let balance = 0;
-    let dataSource = 'N/A';
-
-    // Try Etherscan API
+    // Try Etherscan API (ETH only)
     if (etherscanApiKey) {
       try {
         const provider = new ethers.EtherscanProvider("mainnet", etherscanApiKey);
         const balanceBigInt = await provider.getBalance(derivedAddress);
         const balanceEth = ethers.formatEther(balanceBigInt);
-        balance = parseFloat(balanceEth);
-        dataSource = 'Etherscan API';
+        const balance = parseFloat(balanceEth);
         if (balance > 0) {
-          return { seedPhrase, derivedAddress, walletType, cryptoName, balance, dataSource, wordCount };
+          return { 
+            seedPhrase, 
+            derivedAddress, 
+            walletType, 
+            cryptoName: 'ETH', 
+            balance, 
+            dataSource: 'Etherscan API', 
+            wordCount 
+          };
         }
       } catch (etherscanError: any) {
         console.warn(`Etherscan API error for ${derivedAddress}: ${etherscanError.message}. Trying next available API or skipping.`);
-        dataSource = 'N/A'; 
-        balance = 0;
       }
     }
 
-    // Try BlockCypher API if Etherscan failed/skipped or no Etherscan key and balance is still 0
-    if (blockcypherApiKey && balance === 0) {
-      try {
-        const response = await fetch(`https://api.blockcypher.com/v1/eth/main/addrs/${derivedAddress}/balance?token=${blockcypherApiKey}`);
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ error: "Unknown error parsing BlockCypher error" }));
-          console.warn(`BlockCypher API error for ${derivedAddress}: ${response.status} ${response.statusText} - ${errorData.error || JSON.stringify(errorData)}. Trying next available API or skipping.`);
-        } else {
-            const data = await response.json();
-            const balanceEth = ethers.formatEther(BigInt(data.final_balance || data.balance)); // final_balance for confirmed
-            balance = parseFloat(balanceEth);
-            dataSource = 'BlockCypher API';
-            if (balance > 0) {
-                 return { seedPhrase, derivedAddress, walletType, cryptoName, balance, dataSource, wordCount };
-            }
+    // Try BlockCypher API for multiple coins
+    if (blockcypherApiKey) {
+      for (const coin of BLOCKCYPHER_COINS) {
+        try {
+          // Note: Using an EVM address (derivedAddress) to query non-EVM chains on BlockCypher
+          // might not yield meaningful results or could error. This is per user request.
+          const response = await fetch(`https://api.blockcypher.com/v1/${coin}/main/addrs/${derivedAddress}/balance?token=${blockcypherApiKey}`);
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ error: `Unknown error parsing BlockCypher error for ${coin.toUpperCase()}` }));
+            console.warn(`BlockCypher API error for ${derivedAddress} (${coin.toUpperCase()}): ${response.status} ${response.statusText} - ${errorData.error || JSON.stringify(errorData)}.`);
+            continue; // Try next coin
+          }
+          const data = await response.json();
+          // BlockCypher returns balance in satoshis or smallest unit.
+          // For ETH it's wei. For BTC it's satoshis.
+          // We need to adjust the formatting based on the coin.
+          let balanceCoin = 0;
+          const balanceInSmallestUnit = BigInt(data.final_balance || data.balance || 0);
+
+          if (balanceInSmallestUnit > 0) {
+             // For simplicity, assuming 18 decimals for ETH-like and 8 for BTC-like if not ETH
+             // This is a simplification; real applications would need precise decimal counts per asset.
+            const decimals = (coin.toLowerCase() === 'eth') ? 18 : 8;
+            balanceCoin = parseFloat(ethers.formatUnits(balanceInSmallestUnit, decimals));
+          }
+
+
+          if (balanceCoin > 0) {
+            return { 
+              seedPhrase, 
+              derivedAddress, 
+              walletType, // Remains EVM specific
+              cryptoName: coin.toUpperCase(), 
+              balance: balanceCoin, 
+              dataSource: 'BlockCypher API', 
+              wordCount 
+            };
+          }
+        } catch (blockcypherError: any) {
+          console.warn(`BlockCypher API error for ${derivedAddress} (${coin.toUpperCase()}): ${blockcypherError.message}.`);
         }
-      } catch (blockcypherError: any) {
-        console.warn(`BlockCypher API error for ${derivedAddress}: ${blockcypherError.message}. Trying next available API or skipping.`);
       }
     }
 
-    // Try Alchemy API if previous attempts failed or no other keys and balance is still 0
-    if (alchemyApiKey && balance === 0) {
+    // Try Alchemy API (ETH only)
+    if (alchemyApiKey) {
         try {
             const alchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${alchemyApiKey}`;
             const requestBody = {
@@ -142,10 +158,17 @@ async function deriveAddressAndCheckBalance(
                 const data = await response.json();
                 if (data.result) {
                     const balanceEth = ethers.formatEther(BigInt(data.result));
-                    balance = parseFloat(balanceEth);
-                    dataSource = 'Alchemy API';
+                    const balance = parseFloat(balanceEth);
                     if (balance > 0) {
-                        return { seedPhrase, derivedAddress, walletType, cryptoName, balance, dataSource, wordCount };
+                        return { 
+                            seedPhrase, 
+                            derivedAddress, 
+                            walletType, 
+                            cryptoName: 'ETH', 
+                            balance, 
+                            dataSource: 'Alchemy API', 
+                            wordCount 
+                        };
                     }
                 } else if (data.error) {
                      console.warn(`Alchemy API returned error for ${derivedAddress}: ${data.error.message}`);
@@ -156,10 +179,7 @@ async function deriveAddressAndCheckBalance(
         }
     }
     
-    if (balance > 0) { // This check is redundant if we return inside each successful API block, but good for safety.
-         return { seedPhrase, derivedAddress, walletType, cryptoName, balance, dataSource, wordCount };
-    }
-    return null; // No balance found or all API attempts failed
+    return null; // No balance found or all API attempts failed/returned zero
 
   } catch (error: any) {
     console.error(`Error deriving address for seed phrase "${seedPhrase.substring(0,15)}...": ${error.message}`);
@@ -182,13 +202,15 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
     const results: GenerateAndCheckSeedPhrasesOutput = [];
 
     if (!etherscanApiKey && !blockcypherApiKey && !alchemyApiKey) {
-        console.warn("No API keys provided for generateAndCheckSeedPhrasesFlow. Balances will not be fetched realistically.");
+        console.warn("No API keys provided for generateAndCheckSeedPhrasesFlow. Balances will not be fetched realistically (except for potential BlockCypher public rate limits if any).");
     }
 
-    for (let i = 0; i < numSeedPhrases; i++) {
+    let phrasesChecked = 0;
+    while (phrasesChecked < numSeedPhrases) {
       const randomIndex = Math.floor(Math.random() * ALLOWED_WORD_COUNTS.length);
       const currentWordCount = ALLOWED_WORD_COUNTS[randomIndex];
       const seedPhrase = generateRandomSeedPhrase(currentWordCount);
+      phrasesChecked++;
       
       // Only proceed if at least one API key is available to attempt real balance check
       if (etherscanApiKey || blockcypherApiKey || alchemyApiKey) {
@@ -202,5 +224,3 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
     return results;
   }
 );
-
-    

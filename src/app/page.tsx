@@ -2,7 +2,7 @@
 'use client';
 
 import * as React from 'react';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,24 +21,24 @@ import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { processSeedPhrasesAndFetchBalances, type ProcessedWalletInfo, type AddressBalanceResult } from './actions';
-import { generateAndCheckSeedPhrases, type GenerateAndCheckSeedPhrasesOutput } from '@/ai/flows/random-seed-phrase';
+import { generateAndCheckSeedPhrases, type GenerateAndCheckSeedPhrasesOutput, type GenerateAndCheckSeedPhrasesInput } from '@/ai/flows/random-seed-phrase';
 
 
 interface ResultRow extends ProcessedWalletInfo {
   isLoading: boolean;
-  wordCount?: number; // Added optional wordCount
+  wordCount?: number;
 }
 
-const MAX_DISPLAYED_RESULTS = 500; // Max results to keep in the table for performance
+const MAX_DISPLAYED_RESULTS = 500; 
 
 export default function Home() {
   const [seedPhrasesInput, setSeedPhrasesInput] = useState<string>('');
-  const [etherscanApiKeyInput, setEtherscanApiKeyInput] = useState<string>('ZKPID4755Q9BJZVXXZ96M3N6RSXYE7NTRV');
-  const [blockcypherApiKeyInput, setBlockcypherApiKeyInput] = useState<string>('41ccb7c601ef4bad99b3698cfcea9a8c');
-  const [alchemyApiKeyInput, setAlchemyApiKeyInput] = useState<string>('p4UZuRIRutN5yn06iKDjOcAX2nB75ZRp');
+  const [etherscanApiKeyInput, setEtherscanApiKeyInput] = useState<string>(process.env.NEXT_PUBLIC_ETHERSCAN_API_KEY || 'ZKPID4755Q9BJZVXXZ96M3N6RSXYE7NTRV');
+  const [blockcypherApiKeyInput, setBlockcypherApiKeyInput] = useState<string>(process.env.NEXT_PUBLIC_BLOCKCYPHER_API_KEY || '41ccb7c601ef4bad99b3698cfcea9a8c');
+  const [alchemyApiKeyInput, setAlchemyApiKeyInput] = useState<string>(process.env.NEXT_PUBLIC_ALCHEMY_API_KEY || 'p4UZuRIRutN5yn06iKDjOcAX2nB75ZRp');
   const [results, setResults] = useState<ResultRow[]>([]);
   const [isProcessingManual, setIsProcessingManual] = useState<boolean>(false);
-  const [numSeedPhrasesToGenerate, setNumSeedPhrasesToGenerate] = useState<number>(1);
+  const [numSeedPhrasesToGenerate, setNumSeedPhrasesToGenerate] = useState<number>(10); // Default for auto-generator batch
 
   const { toast } = useToast();
 
@@ -51,7 +51,6 @@ export default function Home() {
   
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Refs for state values to be used in async callbacks (avoid stale closures)
   const isAutoGeneratingRef = useRef(isAutoGenerating);
   const isAutoGenerationPausedRef = useRef(isAutoGenerationPaused);
   const numSeedPhrasesToGenerateRef = useRef(numSeedPhrasesToGenerate);
@@ -68,12 +67,12 @@ export default function Home() {
   useEffect(() => { alchemyApiKeyInputRef.current = alchemyApiKeyInput; }, [alchemyApiKeyInput]);
 
 
-  const addLogMessage = (message: string) => {
+  const addLogMessage = useCallback((message: string) => {
     setGenerationLogs(prevLogs => {
       const newLogs = [`[${new Date().toLocaleTimeString()}] ${message}`, ...prevLogs];
       return newLogs.length > MAX_LOGS ? newLogs.slice(0, MAX_LOGS) : newLogs;
     });
-  };
+  }, []);
 
   const handleFetchBalances = async () => {
     const phrases = seedPhrasesInput
@@ -94,25 +93,12 @@ export default function Home() {
     const hasBlockcypherKey = blockcypherApiKeyInput.trim();
     const hasAlchemyKey = alchemyApiKeyInput.trim();
     
-    let keyWarnings = [];
     if (!hasEtherscanKey && !hasBlockcypherKey && !hasAlchemyKey) {
       toast({
-        title: 'API Key Recommended',
-        description: 'Please enter an Etherscan, BlockCypher, or Alchemy API key for real balances. Balances will be simulated.',
+        title: 'API Key Recommended for Real Balances',
+        description: 'Provide Etherscan, BlockCypher, or Alchemy API key. Manual checks without keys will show N/A or errors.',
         variant: 'default',
       });
-       // For manual input, if no keys, we will still proceed with simulation.
-    } else {
-        if (!hasEtherscanKey) keyWarnings.push("Etherscan");
-        if (!hasBlockcypherKey) keyWarnings.push("BlockCypher");
-        if (!hasAlchemyKey) keyWarnings.push("Alchemy");
-        if (keyWarnings.length > 0 && keyWarnings.length < 3) {
-             toast({
-                title: `${keyWarnings.join(' & ')} API Key(s) Missing`,
-                description: `Will attempt to use available keys or simulate if all fail.`,
-                variant: 'default',
-            });
-        }
     }
 
 
@@ -136,35 +122,37 @@ export default function Home() {
         error: null,
         derivationError: null,
         isLoading: true,
-        wordCount: phrase.split(' ').length, // Estimate word count for manual input
+        wordCount: phrase.split(' ').length,
       }))
     );
 
     try {
       const processedData = await processSeedPhrasesAndFetchBalances(
         phrases,
-        etherscanApiKeyInput || undefined,
-        blockcypherApiKeyInput || undefined,
-        alchemyApiKeyInput || undefined
+        etherscanApiKeyInputRef.current || undefined,
+        blockcypherApiKeyInputRef.current || undefined,
+        alchemyApiKeyInputRef.current || undefined
       );
+      
+      const finalResults = processedData.map(data => ({ 
+        ...data, 
+        isLoading: false, 
+        wordCount: data.seedPhrase.split(' ').length,
+        cryptoName: data.balanceData?.currency || data.cryptoName || 'N/A' 
+      }));
 
-      setResults(processedData.map(data => ({ ...data, isLoading: false, wordCount: data.seedPhrase.split(' ').length })));
+      setResults(finalResults.filter(r => r.balanceData && r.balanceData.balance > 0));
 
       let toastMessage = `Finished processing ${phrases.length} seed phrases. `;
-      const usedApis = [];
-      if (hasEtherscanKey) usedApis.push('Etherscan');
-      if (hasBlockcypherKey) usedApis.push('BlockCypher');
-      if (hasAlchemyKey) usedApis.push('Alchemy');
-
-      if (usedApis.length > 0) {
-        toastMessage += `Attempted to fetch real balances using ${usedApis.join(', ')}.`;
-      } else {
-        toastMessage += 'No API keys provided; balances are simulated.';
-      }
+      const foundCount = finalResults.filter(r => r.balanceData && r.balanceData.balance > 0).length;
+      toastMessage += `Found ${foundCount} wallet(s) with a non-zero balance.`;
       
+      if (!hasEtherscanKey && !hasBlockcypherKey && !hasAlchemyKey) {
+        toastMessage += ' No API keys were provided for real balance checks.';
+      }
 
       toast({
-        title: 'Balance Fetch Complete',
+        title: 'Balance Check Complete',
         description: toastMessage,
       });
 
@@ -182,14 +170,22 @@ export default function Home() {
   };
 
   const handleManualGenerateAndCheck = async () => {
+    if (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current) {
+      toast({
+        title: 'API Key(s) Required',
+        description: 'Please provide at least one API key (Etherscan, BlockCypher, or Alchemy) for the generator to fetch real balances.',
+        variant: 'destructive',
+      });
+      return;
+    }
     setIsProcessingManual(true);
-    addLogMessage(`Manual generation: Requesting ${numSeedPhrasesToGenerate} phrases...`);
+    addLogMessage(`Manual generation: Requesting ${numSeedPhrasesToGenerateRef.current} phrases...`);
     try {
-      const input = {
-        numSeedPhrases: numSeedPhrasesToGenerate,
-        etherscanApiKey: etherscanApiKeyInputRef.current || '',
-        blockcypherApiKey: blockcypherApiKeyInputRef.current || '',
-        alchemyApiKey: alchemyApiKeyInputRef.current || '',
+      const input: GenerateAndCheckSeedPhrasesInput = {
+        numSeedPhrases: numSeedPhrasesToGenerateRef.current,
+        etherscanApiKey: etherscanApiKeyInputRef.current || undefined,
+        blockcypherApiKey: blockcypherApiKeyInputRef.current || undefined,
+        alchemyApiKey: alchemyApiKeyInputRef.current || undefined,
       };
 
       const generatedData: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
@@ -198,28 +194,29 @@ export default function Home() {
         seedPhrase: item.seedPhrase,
         derivedAddress: item.derivedAddress,
         walletType: item.walletType,
-        cryptoName: item.cryptoName,
+        cryptoName: item.cryptoName, // This should now be set by the flow (e.g. BTC, ETH)
         balanceData: {
           address: item.derivedAddress,
           balance: item.balance,
-          currency: item.cryptoName,
+          currency: item.cryptoName, // Use cryptoName from flow output
           isRealData: ['Etherscan API', 'BlockCypher API', 'Alchemy API'].includes(item.dataSource),
-          dataSource: item.dataSource,
+          dataSource: item.dataSource as AddressBalanceResult['dataSource'],
         },
         error: null,
         derivationError: null,
         isLoading: false,
-        wordCount: item.wordCount, // Map wordCount from flow output
+        wordCount: item.wordCount,
       }));
       
-      addLogMessage(`Manual generation: Received ${generatedData.length} phrases. Found ${processedData.length} with balance.`);
-      setResults(prevResults => [...processedData, ...prevResults].slice(-MAX_DISPLAYED_RESULTS)); // Prepend new results
+      addLogMessage(`Manual generation: Received ${generatedData.length} phrases with balance from ${numSeedPhrasesToGenerateRef.current} generated.`);
+      setResults(prevResults => [...processedData, ...prevResults].slice(-MAX_DISPLAYED_RESULTS)); 
 
       toast({
         title: 'Seed Phrases Generated and Checked',
-        description: `Generated ${numSeedPhrasesToGenerate} seed phrases of various lengths. Found ${processedData.length} with balance.`,
+        description: `Generated and checked ${numSeedPhrasesToGenerateRef.current} seed phrases. Found ${processedData.length} with balance.`,
       });
-    } catch (error: any) {
+    } catch (error: any)
+		{
       console.error("Error generating and checking seed phrases:", error);
       addLogMessage(`Manual generation error: ${error.message}`);
       toast({
@@ -248,8 +245,7 @@ export default function Home() {
     });
   };
 
-
-  const runAutoGenerationStep = async () => {
+  const runAutoGenerationStep = useCallback(async () => {
     if (!isAutoGeneratingRef.current || isAutoGenerationPausedRef.current) {
       setCurrentGenerationStatus(isAutoGenerationPausedRef.current ? 'Paused' : 'Stopped');
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -259,15 +255,26 @@ export default function Home() {
     
     setCurrentGenerationStatus('Running'); 
 
+    if (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current) {
+      addLogMessage('Auto-generation stopped: At least one API key is required to check real balances.');
+      stopAutoGenerating(); // stop instead of just pausing
+      toast({
+        title: 'API Key(s) Required for Auto-Generation',
+        description: 'Please provide at least one API key (Etherscan, BlockCypher, or Alchemy) to start auto-generation.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     const currentNumToGenerate = numSeedPhrasesToGenerateRef.current > 0 ? numSeedPhrasesToGenerateRef.current : 1;
     addLogMessage(`Generating batch of ${currentNumToGenerate} seed phrases... (Total checked: ${checkedPhrasesCount})`);
 
     try {
-      const input = {
+      const input: GenerateAndCheckSeedPhrasesInput = {
         numSeedPhrases: currentNumToGenerate,
-        etherscanApiKey: etherscanApiKeyInputRef.current || '',
-        blockcypherApiKey: blockcypherApiKeyInputRef.current || '',
-        alchemyApiKey: alchemyApiKeyInputRef.current || '',
+        etherscanApiKey: etherscanApiKeyInputRef.current || undefined,
+        blockcypherApiKey: blockcypherApiKeyInputRef.current || undefined,
+        alchemyApiKey: alchemyApiKeyInputRef.current || undefined,
       };
 
       const generatedData: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
@@ -282,46 +289,58 @@ export default function Home() {
           balance: item.balance,
           currency: item.cryptoName,
           isRealData: ['Etherscan API', 'BlockCypher API', 'Alchemy API'].includes(item.dataSource),
-          dataSource: item.dataSource,
+          dataSource: item.dataSource as AddressBalanceResult['dataSource'],
         },
         error: null,
         derivationError: null,
         isLoading: false,
-        wordCount: item.wordCount, // Map wordCount from flow output
+        wordCount: item.wordCount,
       }));
       
       setCheckedPhrasesCount(prevCount => prevCount + currentNumToGenerate);
       
       if (processedData.length > 0) {
-        setResults(prevResults => [...processedData, ...prevResults].slice(-MAX_DISPLAYED_RESULTS)); // Prepend new results
+        setResults(prevResults => [...processedData, ...prevResults].slice(-MAX_DISPLAYED_RESULTS));
         addLogMessage(`Found ${processedData.length} wallet(s) with balance in this batch. Results updated.`);
       }
 
     } catch (error: any) {
       console.error("Error during automatic seed phrase generation batch:", error);
       addLogMessage(`Error in generation batch: ${error.message}`);
+       if (error.message?.includes("rate limit") || error.message?.includes("API key quota exceeded")) {
+        addLogMessage("Rate limit likely hit. Pausing generation for 1 minute.");
+        pauseAutoGenerating();
+        setTimeout(() => {
+          if(isAutoGeneratingRef.current && isAutoGenerationPausedRef.current) { // Check if still paused by this logic
+             addLogMessage("Attempting to resume auto-generation after rate limit pause.");
+             startAutoGenerating(); // This will set paused to false
+          }
+        }, 60000); // Pause for 1 minute
+      }
     }
 
     if (isAutoGeneratingRef.current && !isAutoGenerationPausedRef.current) {
-      timeoutRef.current = setTimeout(runAutoGenerationStep, 1000); 
+      const delay = processedData.length > 0 ? 500 : 1000; // Shorter delay if found, longer if not
+      timeoutRef.current = setTimeout(runAutoGenerationStep, delay); 
     } else {
        setCurrentGenerationStatus(isAutoGenerationPausedRef.current ? 'Paused' : 'Stopped');
        if (timeoutRef.current) clearTimeout(timeoutRef.current);
        timeoutRef.current = null;
     }
-  };
+  }, [addLogMessage, checkedPhrasesCount, toast]);
 
   const startAutoGenerating = () => {
     addLogMessage('Starting automatic seed phrase generation...');
     setIsAutoGenerating(true);
-    setIsAutoGenerationPaused(false);
+    setIsAutoGenerationPaused(false); 
     setCurrentGenerationStatus('Running');
     
-    if (!isAutoGenerationPausedRef.current) { 
-        setCheckedPhrasesCount(0);
-        setGenerationLogs(['Automatic generation started.']); 
+    if (!isAutoGeneratingRef.current || isAutoGenerationPausedRef.current) { // If it was paused, reset count
+        setCheckedPhrasesCount(0); 
+        if(generationLogs.length === 0 || generationLogs[0].includes("stopped") || generationLogs[0].includes("API key required")) {
+           setGenerationLogs(prev => ['Automatic generation started.', ...prev].slice(0, MAX_LOGS));
+        }
     }
-
 
     isAutoGeneratingRef.current = true;
     isAutoGenerationPausedRef.current = false;
@@ -334,6 +353,11 @@ export default function Home() {
     addLogMessage('Pausing automatic seed phrase generation.');
     setIsAutoGenerationPaused(true); 
     setCurrentGenerationStatus('Paused');
+    isAutoGenerationPausedRef.current = true; // Ensure ref is updated immediately
+     if (timeoutRef.current) { // Clear any pending step
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
   };
 
   const stopAutoGenerating = () => {
@@ -359,11 +383,15 @@ export default function Home() {
     };
   }, []);
 
-
-  const getCurrencyIcon = (currencySymbol: string) => {
-    switch (currencySymbol?.toUpperCase()) {
+  const getCurrencyIcon = (currencySymbol: string | null | undefined) => {
+    if (!currencySymbol) return '?';
+    switch (currencySymbol.toUpperCase()) {
       case 'ETH': return 'Ξ';
-      default: return currencySymbol?.charAt(0)?.toUpperCase() || '?';
+      case 'BTC': return '₿';
+      case 'LTC': return 'Ł';
+      case 'DOGE': return 'Ð';
+      case 'DASH': return 'D';
+      default: return currencySymbol.charAt(0).toUpperCase();
     }
   };
 
@@ -372,7 +400,7 @@ export default function Home() {
     return `${value.substring(0, start)}...${value.substring(value.length - end)}`;
   };
 
-  const handleCopyText = async (textToCopy: string, type: string) => {
+  const handleCopyText = async (textToCopy: string | null, type: string) => {
     if (!textToCopy) return;
     try {
       await navigator.clipboard.writeText(textToCopy);
@@ -390,7 +418,7 @@ export default function Home() {
     }
   };
 
-  const getDataSourceTag = (dataSource: AddressBalanceResult['dataSource']) => {
+  const getDataSourceTag = (dataSource: AddressBalanceResult['dataSource'] | undefined) => {
     switch (dataSource) {
       case 'Etherscan API':
         return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-green-100 text-green-800 dark:bg-green-800/30 dark:text-green-300">Etherscan</span>;
@@ -398,26 +426,26 @@ export default function Home() {
         return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-800 dark:bg-blue-800/30 dark:text-blue-300">BlockCypher</span>;
       case 'Alchemy API':
         return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-100 text-purple-800 dark:bg-purple-800/30 dark:text-purple-300">Alchemy</span>;
-      case 'Simulated Fallback':
+      case 'Simulated Fallback': // Should not appear if keys are present and filtering works
          return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-800/30 dark:text-amber-300">Simulated</span>;
       case 'N/A':
       case 'Unknown':
       default:
-        return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-800 dark:bg-gray-800/30 dark:text-gray-300">{dataSource || 'Unknown'}</span>;
+        return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-800 dark:bg-gray-800/30 dark:text-gray-300">{dataSource || 'N/A'}</span>;
     }
   };
 
-  const getFetchButtonTextSuffix = () => {
+ const getFetchButtonTextSuffix = () => {
     const keys = [];
-    if (etherscanApiKeyInput.trim()) keys.push('Etherscan');
-    if (blockcypherApiKeyInput.trim()) keys.push('BlockCypher');
-    if (alchemyApiKeyInput.trim()) keys.push('Alchemy');
+    if (etherscanApiKeyInputRef.current?.trim()) keys.push('Etherscan');
+    if (blockcypherApiKeyInputRef.current?.trim()) keys.push('BlockCypher');
+    if (alchemyApiKeyInputRef.current?.trim()) keys.push('Alchemy');
     
-    if (keys.length === 0) return 'Simulate All';
-    if (keys.length === 1) return `Use ${keys[0]} API`;
-    if (keys.length === 2) return `Use ${keys.join(' & ')} APIs`;
-    return 'Use All API Keys';
-  }
+    if (keys.length === 0) return ' (No API Keys - Manual Check Ineffective)';
+    if (keys.length === 1) return ` (Use ${keys[0]} API)`;
+    if (keys.length === 2) return ` (Use ${keys.join(' & ')} APIs)`;
+    return ' (Use All API Keys)';
+  };
   
 
   return (
@@ -438,11 +466,12 @@ export default function Home() {
           <strong>NEVER enter REAL seed phrases into ANY online tool you do not fully trust.</strong>
           This application is for demonstration and educational purposes.
           <ul>
-            <li>It uses <code>ethers.js</code> for LOCAL address derivation. Your seed phrases are NOT sent to any server for derivation.</li>
-            <li>It WILL attempt to use provided API keys (Etherscan, BlockCypher, Alchemy) to fetch REAL balances.</li>
-            <li>If API keys are missing, invalid, or calls fail, it falls back to RANDOMLY SIMULATED balances (for manual input).</li>
-            <li>The automatic generator attempts to find wallets with balances using the provided keys. If API calls fail (e.g. rate limits), results may show 0 balance with 'Unknown' source.</li>
-            <li><strong>Exposing real seed phrases can lead to PERMANENT LOSS OF FUNDS. The pre-filled API keys are for demonstration and may be rate-limited or revoked.</strong></li>
+            <li>It uses <code>ethers.js</code> for LOCAL address derivation (EVM-compatible). Your seed phrases are NOT sent to any server for derivation.</li>
+            <li>It WILL attempt to use provided API keys (Etherscan for ETH; BlockCypher for ETH, BTC, LTC, DOGE, DASH; Alchemy for ETH) to fetch REAL balances.</li>
+            <li>Addresses derived are EVM-compatible. Querying non-EVM chains (e.g., BTC via BlockCypher) with an EVM address may not yield expected results for those specific non-EVM assets.</li>
+            <li>If API keys are missing, invalid, or calls fail, results may show 0 balance or "N/A" datasource. Manual checks without keys are ineffective for real balances.</li>
+            <li>The automatic generator REQUIRES at least one API key to function and find real balances.</li>
+            <li><strong>Exposing real seed phrases can lead to PERMANENT LOSS OF FUNDS. Pre-filled API keys are for demonstration and may be rate-limited or revoked. Use your own keys.</strong></li>
           </ul>
         </AlertDescription>
       </Alert>
@@ -451,7 +480,7 @@ export default function Home() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5" /> Input Seed Phrases & API Keys</CardTitle>
           <CardDescription>
-            Provide seed phrases (one per line) and your Etherscan/BlockCypher/Alchemy API keys for manual checking.
+            Provide seed phrases (one per line) and your API keys for manual checking. At least one API key is needed for the automatic generator.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -490,9 +519,9 @@ export default function Home() {
             />
             <Alert variant="info" className="text-xs mt-2">
               <DatabaseZap className="h-4 w-4" />
-              <AlertTitle className="font-semibold">Etherscan API</AlertTitle>
+              <AlertTitle className="font-semibold">Etherscan API (ETH)</AlertTitle>
               <AlertDescription>
-                For ETH balances. Pre-filled key is for demo.
+                For Ethereum (ETH) balances.
               </AlertDescription>
             </Alert>
           </div>
@@ -508,9 +537,9 @@ export default function Home() {
             />
             <Alert variant="info" className="text-xs mt-2">
               <DatabaseZap className="h-4 w-4" />
-              <AlertTitle className="font-semibold">BlockCypher API</AlertTitle>
+              <AlertTitle className="font-semibold">BlockCypher API (Multi-Crypto)</AlertTitle>
               <AlertDescription>
-                Alternative for ETH balances. Pre-filled key is for demo.
+                Checks ETH, BTC, LTC, DOGE, DASH. (Note: Uses EVM address for all).
               </AlertDescription>
             </Alert>
           </div>
@@ -526,9 +555,9 @@ export default function Home() {
             />
             <Alert variant="info" className="text-xs mt-2">
               <DatabaseZap className="h-4 w-4" />
-              <AlertTitle className="font-semibold">Alchemy API</AlertTitle>
+              <AlertTitle className="font-semibold">Alchemy API (ETH)</AlertTitle>
               <AlertDescription>
-                Alternative for ETH balances. Pre-filled key is for demo.
+                For Ethereum (ETH) balances.
               </AlertDescription>
             </Alert>
           </div>
@@ -540,7 +569,7 @@ export default function Home() {
             className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground"
             aria-label="Fetch Balances Button"
           >
-            {isProcessingManual && !isAutoGenerating && currentGenerationStatus !== 'Running' && currentGenerationStatus !== 'Paused' ? (
+            {isProcessingManual && !(isAutoGenerating && (currentGenerationStatus === 'Running' || currentGenerationStatus === 'Paused')) ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Fetching Balances...
@@ -548,7 +577,7 @@ export default function Home() {
             ) : (
               <>
                 <SearchCheck className="mr-2 h-4 w-4" />
-                Fetch Balances ({getFetchButtonTextSuffix()})
+                Fetch Balances {getFetchButtonTextSuffix()}
               </>
             )}
           </Button>
@@ -569,17 +598,18 @@ export default function Home() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><ListChecks className="h-5 w-5" /> Manual Seed Phrase Generation</CardTitle>
           <CardDescription>
-            Manually generate a specific number of random seed phrases (varying lengths: 12, 15, 18, 21, 24 words) and check their balances using the API keys above.
+            Manually generate a specific number of random seed phrases (varying lengths: 12, 15, 18, 21, 24 words) and check their balances. 
+            <strong>Requires at least one API key to be set above.</strong>
           </CardDescription>
         </CardHeader>
         <CardContent>
              <Input
               type="number"
               min="1"
-              max="1000" // Reasonable upper limit for manual generation
-              placeholder="Number of Seed Phrases"
-              value={numSeedPhrasesToGenerate.toString()}
-              onChange={(e) => setNumSeedPhrasesToGenerate(Math.max(1, Math.min(1000, parseInt(e.target.value, 10) || 1)))}
+              max="100" 
+              placeholder="Number of Seed Phrases (1-100)"
+              value={numSeedPhrasesToGenerate.toString()} // Use the shared state
+              onChange={(e) => setNumSeedPhrasesToGenerate(Math.max(1, Math.min(100, parseInt(e.target.value, 10) || 1)))}
               className="text-sm border-input focus:ring-accent focus:border-accent font-mono w-full md:w-1/3"
               disabled={isProcessingManual || isAutoGenerating}
               aria-label="Number of Seed Phrases to Generate Input"
@@ -588,11 +618,11 @@ export default function Home() {
         <CardFooter className="flex flex-col sm:flex-row gap-2 pt-4 border-t">
           <Button
             onClick={handleManualGenerateAndCheck}
-            disabled={isProcessingManual || isAutoGenerating}
+            disabled={isProcessingManual || isAutoGenerating || (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current)}
             className="w-full sm:w-auto bg-accent hover:bg-accent/90 text-accent-foreground"
             aria-label="Manual Generate and Check Seed Phrases Button"
           >
-            {isProcessingManual && !isAutoGenerating && currentGenerationStatus !== 'Running' && currentGenerationStatus !== 'Paused' ? (
+            {isProcessingManual && !(isAutoGenerating && (currentGenerationStatus === 'Running' || currentGenerationStatus === 'Paused')) ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Generating...
@@ -611,8 +641,9 @@ export default function Home() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5" /> Automatic Seed Phrase Inspector</CardTitle>
           <CardDescription>
-            Continuously generates random seed phrases (varying lengths) and checks for balances using the API keys above.
-            Batch size for generation is set in the "Manual Seed Phrase Generation" section.
+            Continuously generates random seed phrases (varying lengths) and checks for balances.
+            Batch size for generation is set by the "Number of Seed Phrases" input field above (default 10, max 100).
+            <strong>Requires at least one API key to be set in the API Keys section.</strong>
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -635,7 +666,7 @@ export default function Home() {
             {!isAutoGenerating || isAutoGenerationPaused ? (
               <Button
                 onClick={startAutoGenerating}
-                disabled={isProcessingManual || (isAutoGenerating && !isAutoGenerationPaused)}
+                disabled={isProcessingManual || (isAutoGenerating && !isAutoGenerationPaused) || (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current)}
                 className="bg-green-600 hover:bg-green-700 text-white w-28"
                 aria-label={isAutoGenerationPaused ? "Resume Generating" : "Start Generating"}
               >
@@ -684,29 +715,29 @@ export default function Home() {
           <CardHeader>
             <CardTitle>Balance Results (Wallets with Balance &gt; 0)</CardTitle>
             <CardDescription>
-              Etherscan API (masked): {etherscanApiKeyInput.trim() ? maskValue(etherscanApiKeyInput, 4, 4) : 'N/A'}.
-              BlockCypher API (masked): {blockcypherApiKeyInput.trim() ? maskValue(blockcypherApiKeyInput, 4, 4) : 'N/A'}.
-              Alchemy API (masked): {alchemyApiKeyInput.trim() ? maskValue(alchemyApiKeyInput, 4, 4) : 'N/A'}.
+              Etherscan API (masked): {etherscanApiKeyInputRef.current?.trim() ? maskValue(etherscanApiKeyInputRef.current, 4, 4) : 'N/A'}.
+              BlockCypher API (masked): {blockcypherApiKeyInputRef.current?.trim() ? maskValue(blockcypherApiKeyInputRef.current, 4, 4) : 'N/A'}.
+              Alchemy API (masked): {alchemyApiKeyInputRef.current?.trim() ? maskValue(alchemyApiKeyInputRef.current, 4, 4) : 'N/A'}.
               Displaying last {MAX_DISPLAYED_RESULTS} results (newest first).
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
-              <TableCaption>Derived addresses and their balances. Only wallets with balances &gt; 0 are shown.</TableCaption>
+              <TableCaption>Derived EVM addresses and their balances. Only wallets with balances &gt; 0 from API checks are shown.</TableCaption>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[20%]">Seed Phrase (Masked)</TableHead>
                   <TableHead className="w-[10%] text-center">Length</TableHead>
                   <TableHead className="w-[25%]">Derived Address (Masked)</TableHead>
                   <TableHead className="w-[15%] text-center">Wallet Type</TableHead>
-                  <TableHead className="w-[10%] text-center">Crypto</TableHead>
+                  <TableHead className="w-[10%] text-center">Asset</TableHead>
                   <TableHead className="w-[10%] text-right">Balance</TableHead>
                   <TableHead className="w-[10%] text-center">Data Source</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {results.map((result, index) => (
-                  <TableRow key={`${result.seedPhrase}-${index}-${result.derivedAddress}`} className={`hover:bg-secondary/50 ${result.derivationError ? 'bg-red-50 dark:bg-red-900/30' : ''}`}>
+                  <TableRow key={`${result.seedPhrase}-${index}-${result.derivedAddress}-${result.cryptoName}`} className={`hover:bg-secondary/50 ${result.derivationError ? 'bg-red-50 dark:bg-red-900/30' : ''}`}>
                     <TableCell className="font-mono text-xs align-top">
                       <div className="flex items-center gap-1">
                         <span>{maskValue(result.seedPhrase, 4, 4)}</span>
@@ -741,7 +772,7 @@ export default function Home() {
                           >
                             <Copy className="h-3 w-3" />
                           </Button>
-                          <a href={`https://etherscan.io/address/${result.derivedAddress}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700">
+                          <a href={ result.cryptoName === "BTC" ? `https://www.blockchain.com/explorer/addresses/btc/${result.derivedAddress}` : `https://etherscan.io/address/${result.derivedAddress}`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700">
                             <ExternalLink className="h-3 w-3" />
                           </a>
                         </div>
@@ -760,16 +791,16 @@ export default function Home() {
                       ) : result.isLoading ? '' : '-'}
                     </TableCell>
                     <TableCell className="text-center align-top">
-                      {result.cryptoName ? (
+                      {result.cryptoName && result.cryptoName !== 'N/A' ? (
                         <span className="inline-flex items-center gap-1 text-xs">
                           <Coins className="h-3 w-3 text-muted-foreground" />
                           {result.cryptoName}
                         </span>
-                      ) : result.isLoading ? '' : '-'}
+                      ) : result.isLoading ? '' : (result.balanceData?.balance || 0) > 0 ? (result.balanceData?.currency || '-') : '-'}
                     </TableCell>
                     <TableCell className="text-right align-top">
                       {result.isLoading && !result.balanceData && <span className="text-muted-foreground text-xs">Loading...</span>}
-                      {result.balanceData ? (
+                      {result.balanceData && result.balanceData.balance > 0 ? (
                         <span className="flex items-center justify-end gap-1 font-medium text-xs">
                           <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full ${result.balanceData.isRealData ? 'bg-green-500/20 text-green-700 dark:text-green-400' : 'bg-accent/20 text-accent'} text-[10px] font-bold shrink-0`}>
                             {getCurrencyIcon(result.balanceData.currency)}
@@ -777,6 +808,8 @@ export default function Home() {
                           {result.balanceData.balance.toFixed(6)}{' '}
                           <span className="text-muted-foreground text-[10px] shrink-0">{result.balanceData.currency}</span>
                         </span>
+                      ) : !result.isLoading && result.balanceData && result.balanceData.balance === 0 ? (
+                         <span className="text-muted-foreground text-xs">0.000000 {result.balanceData.currency}</span>
                       ) : result.error && !result.derivationError ? (
                         <span className="text-destructive text-xs italic">Fetch Error</span>
                       ) : (
@@ -790,7 +823,7 @@ export default function Home() {
                       ) : result.derivationError ? (
                         '-'
                       ) : result.error && !result.isLoading ? (
-                         getDataSourceTag('Simulated Fallback') 
+                         getDataSourceTag('N/A') 
                       ) : (
                         !result.isLoading && '-'
                       )}

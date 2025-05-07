@@ -114,20 +114,20 @@ export default function Home() {
       } else { 
         const actionItem = item as ProcessedWalletInfo;
         itemBalances = actionItem.balanceData || [];
-        allPositiveBalances = itemBalances;
+        allPositiveBalances = itemBalances; // In ProcessedWalletInfo, balanceData should already be filtered for positive
         wordCountVal = actionItem.seedPhrase.split(' ').length;
       }
       
       if (itemDerivationError) {
-        addLogMessage(`Skipping item with derivation error: ${maskValue(item.seedPhrase, 4, 4)}`);
+        // addLogMessage(`Skipping item with derivation error: ${maskValue(item.seedPhrase, 4, 4)}`); // Already logged in flow/action
         return null;
       }
       if (itemError && allPositiveBalances.length === 0) {
-          addLogMessage(`Skipping item with error and no positive balance: ${maskValue(item.seedPhrase, 4,4)}`);
+        //   addLogMessage(`Skipping item with error and no positive balance: ${maskValue(item.seedPhrase, 4,4)}`); // Already logged in flow/action
           return null;
       }
       if(allPositiveBalances.length === 0) {
-        addLogMessage(`Skipping item with no positive balance: ${maskValue(item.seedPhrase, 4,4)}`);
+        // addLogMessage(`Skipping item with no positive balance: ${maskValue(item.seedPhrase, 4,4)}`); // Already logged in flow/action
         return null;
       }
 
@@ -175,7 +175,7 @@ export default function Home() {
       toast({
         title: 'API Key Recommended for Real Balances',
         description: 'Provide at least one API key. Manual checks without keys will not find any real balances.',
-        variant: 'default',
+        variant: 'default', // Changed from warning to default as it's informational
       });
     }
 
@@ -190,25 +190,26 @@ export default function Home() {
     }
 
     setIsProcessingManual(true);
+    addLogMessage(`Manual check: Processing ${phrases.length} seed phrases...`);
     const validPhrases = phrases.filter(phrase => {
         const wordCount = phrase.split(' ').length;
-        return [12, 15, 18, 21, 24].includes(wordCount);
+        const isValid = [12, 15, 18, 21, 24].includes(wordCount);
+        if (!isValid) {
+            addLogMessage(`Manual check: Invalid seed phrase (word count) skipped: ${maskValue(phrase,4,4)}`);
+        }
+        return isValid;
     });
 
-    const initialLoadingResults = validPhrases.map((phrase) => ({
-        seedPhrase: phrase,
-        derivedAddress: null,
-        walletType: null,
-        balanceData: [], 
-        error: null,
-        derivationError: null,
-        isLoading: true, 
-        wordCount: phrase.split(' ').length,
-        displayCryptoName: null,
-        displayBalance: null,
-        displayDataSource: null,
-        numOtherBalances: 0,
-      }));
+    if (validPhrases.length === 0 && phrases.length > 0) {
+        addLogMessage(`Manual check: All ${phrases.length} provided phrases were invalid.`);
+        toast({ title: 'Invalid Seed Phrases', description: 'None of the provided seed phrases had a valid word count (12, 15, 18, 21, or 24).', variant: 'destructive' });
+        setIsProcessingManual(false);
+        return;
+    }
+
+
+    // No initial loading results added to the main table for manual input to keep it clean.
+    // Processing happens, then final results are added.
 
     try {
       const processedDataFromAction = await processSeedPhrasesAndFetchBalances(
@@ -220,15 +221,17 @@ export default function Home() {
       );
       
       const finalResults = processAndSetDisplayBalances(processedDataFromAction, false);
-      const displayableResults = finalResults.filter(r => r.displayBalance && r.displayBalance > 0 && !r.derivationError && !(r.error && (!r.balanceData || r.balanceData.length === 0)));
+      // const displayableResults = finalResults.filter(r => r.displayBalance && r.displayBalance > 0 && !r.derivationError && !(r.error && (!r.balanceData || r.balanceData.length === 0)));
+      const displayableResults = finalResults; // The filtering is now inside processAndSetDisplayBalances
       
-      setResults(displayableResults);
+      addLogMessage(`Manual check: Finished. Found ${displayableResults.length} wallet(s) with balance from ${validPhrases.length} valid phrases.`);
+      setResults(prevResults => [...displayableResults, ...prevResults].slice(0,MAX_DISPLAYED_RESULTS));
 
 
-      let toastMessage = `Finished processing ${phrases.length} seed phrases. `;
+      let toastMessage = `Finished processing ${validPhrases.length} valid seed phrase(s). `;
       toastMessage += `Found ${displayableResults.length} wallet(s) with at least one non-zero balance.`;
       
-      if (!hasEtherscanKey && !hasBlockcypherKey && !hasAlchemyKey && !hasBlockstreamKey && phrases.length > 0) {
+      if (!hasEtherscanKey && !hasBlockcypherKey && !hasAlchemyKey && !hasBlockstreamKey && validPhrases.length > 0) {
         toastMessage += ' No API keys were provided, so no real balances could be fetched.';
       }
 
@@ -239,12 +242,13 @@ export default function Home() {
 
     } catch (error: any) {
       console.error("General error during balance fetching process:", error);
+      addLogMessage(`Manual check error: ${error.message}`);
       toast({
         title: 'Processing Error',
         description: `An unexpected error occurred: ${error.message}. Some results might be incomplete.`,
         variant: 'destructive',
       });
-       setResults(prevResults => prevResults.map(r => ({ ...r, isLoading: false, error: r.isLoading ? (r.error || "Overall process failed") : r.error })).filter(r => r.displayBalance && r.displayBalance > 0 && !r.derivationError && !(r.error && (!r.balanceData || r.balanceData.length === 0))));
+       // No results to update isLoading for, as they are only added on success
     }
 
     setIsProcessingManual(false);
@@ -285,7 +289,8 @@ export default function Home() {
       }
       
       const processedResults = processAndSetDisplayBalances(generatedDataFromFlow, true);
-      const actualFoundResults = processedResults.filter(r => r.displayBalance && r.displayBalance > 0 && !r.derivationError && !(r.error && (!r.balanceData || r.balanceData.length === 0)));
+      // const actualFoundResults = processedResults.filter(r => r.displayBalance && r.displayBalance > 0 && !r.derivationError && !(r.error && (!r.balanceData || r.balanceData.length === 0)));
+      const actualFoundResults = processedResults; // Filtering is now inside processAndSetDisplayBalances
       
       addLogMessage(`Manual generation: Received ${actualFoundResults.length} phrases with balance from ${numSeedPhrasesToGenerateRef.current} generated.`);
       setResults(prevResults => [...actualFoundResults, ...prevResults].slice(0, MAX_DISPLAYED_RESULTS));
@@ -382,8 +387,15 @@ export default function Home() {
       });
       return;
     }
+    
+    // Use a functional update for setCheckedPhrasesCount to get the latest state
+    let currentCheckedCount = 0;
+    setCheckedPhrasesCount(prev => {
+        currentCheckedCount = prev;
+        return prev; // No change here, just getting the value
+    });
 
-    addLogMessage(`Generating batch of ${currentNumToGenerate} seed phrases... (Session total: ${checkedPhrasesCount})`);
+    addLogMessage(`Generating batch of ${currentNumToGenerate} seed phrases... (Session total: ${currentCheckedCount})`);
     let processedResultsFromFlow = [];
     try {
       const input: GenerateAndCheckSeedPhrasesInput = {
@@ -409,16 +421,21 @@ export default function Home() {
       }
       
       processedResultsFromFlow = processAndSetDisplayBalances(generatedDataFromFlow, true); 
-      const actualFoundResults = processedResultsFromFlow.filter(r => r.displayBalance && r.displayBalance > 0 && !r.derivationError && !(r.error && (!r.balanceData || r.balanceData.length === 0)));
+      // const actualFoundResults = processedResultsFromFlow.filter(r => r.displayBalance && r.displayBalance > 0 && !r.derivationError && !(r.error && (!r.balanceData || r.balanceData.length === 0)));
+      const actualFoundResults = processedResultsFromFlow; // Filtering is now inside processAndSetDisplayBalances
             
       //CHECKED_PHRASES_COUNT IS INCREMENTED HERE
-      setCheckedPhrasesCount(prevCount => prevCount + currentNumToGenerate); // Update cumulative session count
+      let newTotalChecked = 0;
+      setCheckedPhrasesCount(prevCount => {
+          newTotalChecked = prevCount + currentNumToGenerate;
+          return newTotalChecked; // Update cumulative session count
+      });
       
       if (actualFoundResults.length > 0) {
         setResults(prevResults => [...actualFoundResults, ...prevResults].slice(0, MAX_DISPLAYED_RESULTS));
-        addLogMessage(`Processed batch of ${currentNumToGenerate}. Found ${actualFoundResults.length} wallet(s) with balance. Session total: ${checkedPhrasesCount + currentNumToGenerate}. Results updated.`);
+        addLogMessage(`Processed batch of ${currentNumToGenerate}. Found ${actualFoundResults.length} wallet(s) with balance. Session total: ${newTotalChecked}. Results updated.`);
       } else {
-        addLogMessage(`Processed batch of ${currentNumToGenerate}. No wallets with balance found. Session total: ${checkedPhrasesCount + currentNumToGenerate}.`);
+        addLogMessage(`Processed batch of ${currentNumToGenerate}. No wallets with balance found. Session total: ${newTotalChecked}.`);
       }
 
     } catch (error: any) {
@@ -433,7 +450,7 @@ export default function Home() {
              addLogMessage("Attempting to resume auto-generation after rate limit pause.");
              setIsAutoGenerationPaused(false);
              isAutoGenerationPausedRef.current = false;
-             if (timeoutRef.current === null) { 
+             if (timeoutRef.current === null) { // Ensure it wasn't cleared by a stop action
                 runAutoGenerationStep();
              }
           }
@@ -462,7 +479,7 @@ export default function Home() {
        if (timeoutRef.current) clearTimeout(timeoutRef.current);
        timeoutRef.current = null;
     }
-  }, [addLogMessage, checkedPhrasesCount, toast, processAndSetDisplayBalances, stopAutoGenerating, pauseAutoGenerating]);
+  }, [addLogMessage, toast, processAndSetDisplayBalances, stopAutoGenerating, pauseAutoGenerating]);
 
 
   const startAutoGenerating = useCallback(() => {
@@ -475,7 +492,7 @@ export default function Home() {
             setCheckedPhrasesCount(0); // Reset cumulative session count on a fresh start
         }
     }
-    setPhrasesInBatchDisplay(currentBatchSizeSetting);
+    setPhrasesInBatchDisplay(currentBatchSizeSetting); // Set the display based on the input field
     
     setIsAutoGenerating(true);
     setIsAutoGenerationPaused(false); 
@@ -493,6 +510,7 @@ export default function Home() {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
+      // Cleanup refs on unmount, though they are primarily for controlling active loops
       isAutoGeneratingRef.current = false; 
       isAutoGenerationPausedRef.current = false;
     };
@@ -1052,3 +1070,4 @@ export default function Home() {
     
 
     
+

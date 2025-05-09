@@ -1,7 +1,10 @@
 // @ts-nocheck
 'use client';
 
-import * as React from 'react';
+import type { ProcessedWalletInfo, AddressBalanceResult } from './actions';
+import { generateAndCheckSeedPhrases, type GenerateAndCheckSeedPhrasesOutput, type GenerateAndCheckSeedPhrasesInput, type SingleSeedPhraseResult as FlowSingleSeedPhraseResult, type FlowBalanceResult } from '@/ai/flows/random-seed-phrase';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import React from 'react';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
@@ -20,23 +23,21 @@ import { Activity, Terminal, Loader2, Wallet, Network, Coins, Copy, Eraser, Tras
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { processSeedPhrasesAndFetchBalances, type ProcessedWalletInfo, type AddressBalanceResult } from './actions';
-import { generateAndCheckSeedPhrases, type GenerateAndCheckSeedPhrasesOutput, type GenerateAndCheckSeedPhrasesInput, type SingleSeedPhraseResult as FlowSingleSeedPhraseResult, type FlowBalanceResult } from '@/ai/flows/random-seed-phrase';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { processSeedPhrasesAndFetchBalances } from './actions';
 
 
 interface ResultRow extends Omit<ProcessedWalletInfo, 'balanceData' | 'cryptoName'> {
   isLoading: boolean;
   wordCount?: number;
-  balanceData: AddressBalanceResult[] | FlowBalanceResult[] | null; 
-  displayCryptoName?: string | null; 
+  balanceData: AddressBalanceResult[] | FlowBalanceResult[] | null;
+  displayCryptoName?: string | null;
   displayBalance?: number | null;
   displayDataSource?: AddressBalanceResult['dataSource'] | FlowBalanceResult['dataSource'] | null;
-  numOtherBalances?: number; 
+  numOtherBalances?: number;
 }
 
 
-const MAX_DISPLAYED_RESULTS = 500; 
+const MAX_DISPLAYED_RESULTS = 500;
 const MAX_LOGS = 100;
 type GenerationStatus = 'Stopped' | 'Running' | 'Paused';
 
@@ -70,12 +71,12 @@ export default function Home() {
 
   const [isAutoGenerating, setIsAutoGenerating] = useState(false);
   const [isAutoGenerationPaused, setIsAutoGenerationPaused] = useState(false);
-  const [checkedPhrasesCount, setCheckedPhrasesCount] = useState<number>(0); 
-  const [phrasesInBatchDisplay, setPhrasesInBatchDisplay] = useState<number>(0); 
-  
+  const [checkedPhrasesCount, setCheckedPhrasesCount] = useState<number>(0);
+  const [phrasesInBatchDisplay, setPhrasesInBatchDisplay] = useState<number>(0);
+
   const [currentGenerationStatus, setCurrentGenerationStatus] = useState<GenerationStatus>('Stopped');
   const [generationLogs, setGenerationLogs] = useState<string[]>([]);
-  
+
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const isAutoGeneratingRef = useRef(isAutoGenerating);
@@ -89,7 +90,7 @@ export default function Home() {
 
 
   useEffect(() => { isAutoGeneratingRef.current = isAutoGenerating; }, [isAutoGenerating]);
-  useEffect(() => { 
+  useEffect(() => {
     isAutoGenerationPausedRef.current = isAutoGenerationPaused;
     localStorage.setItem(LOCAL_STORAGE_GENERATION_PAUSED_KEY, isAutoGenerationPaused.toString());
   }, [isAutoGenerationPaused]);
@@ -117,7 +118,7 @@ export default function Home() {
   }, []);
 
   const processAndSetDisplayBalances = useCallback((data: ProcessedWalletInfo[] | GenerateAndCheckSeedPhrasesOutput, isFromFlow: boolean = false): ResultRow[] => {
-    if (!data) { 
+    if (!data) {
         addLogMessage(`Flow Execution Error: Received null data from flow.`);
         return [];
     }
@@ -125,22 +126,22 @@ export default function Home() {
     return data.map(item => {
       let allPositiveBalances: (AddressBalanceResult | FlowBalanceResult)[] = [];
       let wordCountVal: number;
-      let itemBalances: any[] = []; 
+      let itemBalances: any[] = [];
       let itemError = item.error || null;
       let itemDerivationError = item.derivationError || null;
 
       if (isFromFlow) {
         const flowItem = item as FlowSingleSeedPhraseResult;
-        itemBalances = flowItem.balances || []; 
+        itemBalances = flowItem.balances || [];
         allPositiveBalances = itemBalances; // Already filtered for positive balances by the flow
         wordCountVal = flowItem.wordCount;
-      } else { 
+      } else {
         const actionItem = item as ProcessedWalletInfo;
         itemBalances = actionItem.balanceData || [];
         allPositiveBalances = itemBalances; // Already filtered for positive real balances by the action
         wordCountVal = actionItem.seedPhrase.split(' ').length;
       }
-      
+
       if (itemDerivationError) {
         // addLogMessage(`Skipping result due to derivation error: ${maskValue(item.seedPhrase,4,4)}`);
         return null;
@@ -169,17 +170,17 @@ export default function Home() {
         seedPhrase: item.seedPhrase,
         derivedAddress: item.derivedAddress,
         walletType: item.walletType,
-        balanceData: itemBalances, 
+        balanceData: itemBalances,
         error: itemError,
-        derivationError: itemDerivationError, 
+        derivationError: itemDerivationError,
         isLoading: false,
         wordCount: wordCountVal,
-        displayCryptoName: primaryBalance?.currency, 
+        displayCryptoName: primaryBalance?.currency,
         displayBalance: primaryBalance?.balance,
         displayDataSource: primaryBalance?.dataSource as AddressBalanceResult['dataSource'] | FlowBalanceResult['dataSource'],
         numOtherBalances: primaryBalance && allPositiveBalances.length > 1 ? allPositiveBalances.length - 1 : 0,
       };
-    }).filter(Boolean) as ResultRow[]; 
+    }).filter(Boolean) as ResultRow[];
   }, [addLogMessage]);
 
 
@@ -202,12 +203,12 @@ export default function Home() {
     const hasBlockcypherKey = blockcypherApiKeyInputRef.current.trim();
     const hasAlchemyKey = alchemyApiKeyInputRef.current.trim();
     const hasBlockstreamCreds = blockstreamClientIdInputRef.current.trim() && blockstreamClientSecretInputRef.current.trim();
-    
+
     if (!hasEtherscanKey && !hasBlockcypherKey && !hasAlchemyKey && !hasBlockstreamCreds) {
       toast({
         title: 'API Key/Credentials Recommended for Real Balances',
         description: 'Provide at least one set of API credentials. Manual checks without them will not find any real balances.',
-        variant: 'default', 
+        variant: 'default',
       });
     }
 
@@ -248,17 +249,17 @@ export default function Home() {
         blockstreamClientIdInputRef.current || undefined,
         blockstreamClientSecretInputRef.current || undefined
       );
-      
+
       const finalResults = processAndSetDisplayBalances(processedDataFromAction, false);
-      const displayableResults = finalResults; 
-      
+      const displayableResults = finalResults;
+
       addLogMessage(`Manual check: Finished. Found ${displayableResults.length} wallet(s) with balance from ${validPhrases.length} valid phrases.`);
       setResults(prevResults => [...displayableResults, ...prevResults].slice(0,MAX_DISPLAYED_RESULTS));
 
 
       let toastMessage = `Finished processing ${validPhrases.length} valid seed phrase(s). `;
       toastMessage += `Found ${displayableResults.length} wallet(s) with at least one non-zero balance.`;
-      
+
       if (!hasEtherscanKey && !hasBlockcypherKey && !hasAlchemyKey && !hasBlockstreamCreds && validPhrases.length > 0) {
         toastMessage += ' No API keys/credentials were provided, so no real balances could be fetched.';
       }
@@ -303,8 +304,8 @@ export default function Home() {
       };
 
       const generatedDataFromFlow: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
-      
-      if (!generatedDataFromFlow) { 
+
+      if (!generatedDataFromFlow) {
           console.error("Genkit Flow Execution Error: Returned null");
           addLogMessage(`Manual generation error: Genkit flow failed and returned null.`);
           toast({
@@ -315,10 +316,10 @@ export default function Home() {
           setIsProcessingManual(false);
           return;
       }
-      
+
       const processedResults = processAndSetDisplayBalances(generatedDataFromFlow, true);
-      const actualFoundResults = processedResults; 
-      
+      const actualFoundResults = processedResults;
+
       addLogMessage(`Manual generation: Received ${actualFoundResults.length} phrases with balance from ${numSeedPhrasesToGenerateRef.current} generated.`);
       setResults(prevResults => [...actualFoundResults, ...prevResults].slice(0, MAX_DISPLAYED_RESULTS));
 
@@ -360,7 +361,7 @@ export default function Home() {
     setIsAutoGenerating(false);
     setIsAutoGenerationPaused(false);
     setCurrentGenerationStatus('Stopped');
-    setPhrasesInBatchDisplay(0); 
+    setPhrasesInBatchDisplay(0);
 
     isAutoGeneratingRef.current = false;
     isAutoGenerationPausedRef.current = false;
@@ -373,15 +374,15 @@ export default function Home() {
       localStorage.removeItem(LOCAL_STORAGE_CHECKED_COUNT_KEY);
       localStorage.removeItem(LOCAL_STORAGE_GENERATION_STATUS_KEY);
       localStorage.removeItem(LOCAL_STORAGE_GENERATION_PAUSED_KEY);
-      setCheckedPhrasesCount(0); 
+      setCheckedPhrasesCount(0);
     }
   }, [addLogMessage]);
 
   const pauseAutoGenerating = useCallback(() => {
     if (!isAutoGeneratingRef.current || isAutoGenerationPausedRef.current) return;
     addLogMessage('Pausing automatic seed phrase generation.');
-    setIsAutoGenerationPaused(true); 
-    setCurrentGenerationStatus('Paused'); 
+    setIsAutoGenerationPaused(true);
+    setCurrentGenerationStatus('Paused');
 
     isAutoGenerationPausedRef.current = true;
 
@@ -395,22 +396,22 @@ export default function Home() {
   const runAutoGenerationStep = useCallback(async () => {
     if (!isAutoGeneratingRef.current || isAutoGenerationPausedRef.current) {
       setCurrentGenerationStatus(isAutoGenerationPausedRef.current ? 'Paused' : 'Stopped');
-      if (!isAutoGenerationPausedRef.current) { 
+      if (!isAutoGenerationPausedRef.current) {
           setPhrasesInBatchDisplay(0);
       }
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
       return;
     }
-    
-    setCurrentGenerationStatus('Running'); 
+
+    setCurrentGenerationStatus('Running');
     const currentNumToGenerate = numSeedPhrasesToGenerateRef.current > 0 ? numSeedPhrasesToGenerateRef.current : 1;
     setPhrasesInBatchDisplay(currentNumToGenerate);
 
 
     if (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current && (!blockstreamClientIdInputRef.current || !blockstreamClientSecretInputRef.current)) {
       addLogMessage('Auto-generation stopped: At least one set of API credentials is required to check real balances.');
-      stopAutoGenerating(true); 
+      stopAutoGenerating(true);
       toast({
         title: 'API Credentials Required for Auto-Generation',
         description: 'Please provide at least one set of API credentials to start auto-generation.',
@@ -418,7 +419,7 @@ export default function Home() {
       });
       return;
     }
-    
+
     addLogMessage(`Generating batch of ${currentNumToGenerate} seed phrases... (Session total before this batch: ${checkedPhrasesCount})`);
     let processedResultsFromFlow = [];
     let actualFoundResults = [];
@@ -433,8 +434,8 @@ export default function Home() {
       };
 
       const generatedDataFromFlow: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
-      
-      if (!generatedDataFromFlow) { 
+
+      if (!generatedDataFromFlow) {
           console.error("Genkit Flow Execution Error (Auto-Gen): Returned null");
           addLogMessage(`Auto-generation error: Genkit flow failed and returned null. Pausing.`);
           toast({
@@ -442,19 +443,19 @@ export default function Home() {
             description: `Auto-generation failed. Pausing.`,
             variant: 'destructive',
           });
-          pauseAutoGenerating(); 
+          pauseAutoGenerating();
           return;
       }
-      
-      processedResultsFromFlow = processAndSetDisplayBalances(generatedDataFromFlow, true); 
-      actualFoundResults = processedResultsFromFlow; 
-            
+
+      processedResultsFromFlow = processAndSetDisplayBalances(generatedDataFromFlow, true);
+      actualFoundResults = processedResultsFromFlow;
+
       let newTotalChecked = 0;
       setCheckedPhrasesCount(prevCount => {
           newTotalChecked = prevCount + currentNumToGenerate;
-          return newTotalChecked; 
-      }); 
-      
+          return newTotalChecked;
+      });
+
       if (actualFoundResults.length > 0) {
         setResults(prevResults => [...actualFoundResults, ...prevResults].slice(0, MAX_DISPLAYED_RESULTS));
         addLogMessage(`Processed batch of ${currentNumToGenerate}. Found ${actualFoundResults.length} wallet(s) with balance. Session total: ${newTotalChecked}. Results updated.`);
@@ -467,19 +468,19 @@ export default function Home() {
       addLogMessage(`Error in generation batch: ${error.message}`);
        if (error.message?.includes("rate limit") || error.message?.includes("API key quota exceeded") || error.message?.includes("blocked") || error.status === 429) {
         addLogMessage("Rate limit or block likely hit. Pausing generation for 1 minute.");
-        pauseAutoGenerating(); 
+        pauseAutoGenerating();
         if (timeoutRef.current) clearTimeout(timeoutRef.current);
         timeoutRef.current = setTimeout(() => {
-          if(isAutoGeneratingRef.current && isAutoGenerationPausedRef.current) { 
+          if(isAutoGeneratingRef.current && isAutoGenerationPausedRef.current) {
              addLogMessage("Attempting to resume auto-generation after rate limit pause.");
-             setIsAutoGenerationPaused(false); 
+             setIsAutoGenerationPaused(false);
              isAutoGenerationPausedRef.current = false;
-             if (timeoutRef.current !== null && isAutoGeneratingRef.current && !isAutoGenerationPausedRef.current) { 
+             if (timeoutRef.current !== null && isAutoGeneratingRef.current && !isAutoGenerationPausedRef.current) {
                 runAutoGenerationStep();
              }
           }
-        }, 60000); 
-        return; 
+        }, 60000);
+        return;
       } else {
         addLogMessage(`Unexpected error in auto-generation: ${error.message}. Pausing.`);
         pauseAutoGenerating();
@@ -493,11 +494,11 @@ export default function Home() {
     }
 
     if (isAutoGeneratingRef.current && !isAutoGenerationPausedRef.current) {
-      const delay = (actualFoundResults.length > 0) ? 1000 : 1500; 
-      timeoutRef.current = setTimeout(runAutoGenerationStep, delay); 
+      const delay = (actualFoundResults.length > 0) ? 1000 : 1500;
+      timeoutRef.current = setTimeout(runAutoGenerationStep, delay);
     } else {
        setCurrentGenerationStatus(isAutoGenerationPausedRef.current ? 'Paused' : 'Stopped');
-       if (!isAutoGenerationPausedRef.current) { 
+       if (!isAutoGenerationPausedRef.current) {
             setPhrasesInBatchDisplay(0);
        }
        if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -507,7 +508,7 @@ export default function Home() {
 
 
   const startAutoGenerating = useCallback((isResumingFromRefresh = false) => {
-    const wasPaused = isAutoGenerationPausedRef.current; 
+    const wasPaused = isAutoGenerationPausedRef.current;
     const currentBatchSizeSetting = numSeedPhrasesToGenerateRef.current > 0 ? numSeedPhrasesToGenerateRef.current : 1;
 
     if (!etherscanApiKeyInputRef.current?.trim() && !blockcypherApiKeyInputRef.current?.trim() && !alchemyApiKeyInputRef.current?.trim() && (!blockstreamClientIdInputRef.current?.trim() || !blockstreamClientSecretInputRef.current?.trim())) {
@@ -518,30 +519,29 @@ export default function Home() {
         variant: 'destructive',
       });
       if (isResumingFromRefresh) {
-          stopAutoGenerating(true); 
+          stopAutoGenerating(true);
       }
       return;
     }
 
     addLogMessage(isResumingFromRefresh ? 'Resuming auto-generation from previous session...' : (wasPaused ? 'Resuming automatic seed phrase generation...' : 'Starting automatic seed phrase generation...'));
-    
-    if (!isResumingFromRefresh && !wasPaused) { 
-        setCheckedPhrasesCount(0); 
-    }
-    
-    setPhrasesInBatchDisplay(currentBatchSizeSetting); 
-    
+
+    // The checkedPhrasesCount is already managed by localStorage loading and stopAutoGenerating(true).
+    // No need to reset it here.
+
+    setPhrasesInBatchDisplay(currentBatchSizeSetting);
+
     setIsAutoGenerating(true);
-    setIsAutoGenerationPaused(false); 
+    setIsAutoGenerationPaused(false);
     setCurrentGenerationStatus('Running');
-    
+
     isAutoGeneratingRef.current = true;
     isAutoGenerationPausedRef.current = false;
 
-    if (timeoutRef.current) clearTimeout(timeoutRef.current); 
-    runAutoGenerationStep(); 
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    runAutoGenerationStep();
   }, [addLogMessage, runAutoGenerationStep, toast, stopAutoGenerating]);
-  
+
   useEffect(() => {
     const storedCheckedCount = localStorage.getItem(LOCAL_STORAGE_CHECKED_COUNT_KEY);
     const storedStatus = localStorage.getItem(LOCAL_STORAGE_GENERATION_STATUS_KEY) as GenerationStatus | null;
@@ -560,12 +560,14 @@ export default function Home() {
       attemptResume = true;
     } else if (storedStatus === 'Paused' || (storedStatus === 'Running' && storedPaused === 'true')) {
       setCurrentGenerationStatus('Paused');
-      setIsAutoGenerating(true); 
+      setIsAutoGenerating(true);
       isAutoGeneratingRef.current = true;
       setIsAutoGenerationPaused(true);
       isAutoGenerationPausedRef.current = true;
       addLogMessage('Auto-generation was paused. Press Resume to continue or Stop to clear.');
     } else {
+      // If status is 'Stopped' or not set, checkedPhrasesCount would have been loaded from localStorage
+      // or remains 0 if localStorage was cleared or never set. This is the desired state.
       setCurrentGenerationStatus('Stopped');
       setIsAutoGenerating(false);
       isAutoGeneratingRef.current = false;
@@ -576,16 +578,16 @@ export default function Home() {
     if (attemptResume) {
       const resumeTimeout = setTimeout(() => {
         if (etherscanApiKeyInputRef.current?.trim() || blockcypherApiKeyInputRef.current?.trim() || alchemyApiKeyInputRef.current?.trim() || (blockstreamClientIdInputRef.current?.trim() && blockstreamClientSecretInputRef.current?.trim())) {
-          startAutoGenerating(true); 
+          startAutoGenerating(true);
         } else {
           addLogMessage('Auto-generation was running but API keys are now missing. Please re-enter keys and start manually.');
-          stopAutoGenerating(true); 
+          stopAutoGenerating(true);
         }
-      }, 100); 
+      }, 100);
       return () => clearTimeout(resumeTimeout);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); 
+  }, []);
 
 
   useEffect(() => {
@@ -605,7 +607,7 @@ export default function Home() {
     if (upperSymbol.includes('LTC')) return 'Ł';
     if (upperSymbol.includes('DOGE')) return 'Ð';
     if (upperSymbol.includes('DASH')) return 'D';
-    if (upperSymbol.includes('MATIC')) return 'MATIC'.charAt(0); 
+    if (upperSymbol.includes('MATIC')) return 'MATIC'.charAt(0);
     return currencySymbol.charAt(0).toUpperCase();
   };
 
@@ -642,7 +644,7 @@ export default function Home() {
         return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-100 text-purple-800 dark:bg-purple-800/30 dark:text-purple-300">Alchemy</span>;
       case 'Blockstream API':
         return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-100 text-orange-800 dark:bg-orange-800/30 dark:text-orange-300">Blockstream</span>;
-      case 'Simulated Fallback': 
+      case 'Simulated Fallback':
          return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-800/30 dark:text-amber-300">Simulated</span>;
       case 'N/A':
       case 'Unknown':
@@ -657,14 +659,14 @@ export default function Home() {
     if (blockcypherApiKeyInputRef.current?.trim()) keys.push('BlockCypher');
     if (alchemyApiKeyInputRef.current?.trim()) keys.push('Alchemy');
     if (blockstreamClientIdInputRef.current?.trim() && blockstreamClientSecretInputRef.current?.trim()) keys.push('Blockstream');
-    
+
     if (keys.length === 0) return ' (No API Credentials - Manual Check Ineffective)';
     if (keys.length === 1) return ` (Use ${keys[0]} API)`;
     if (keys.length === 2) return ` (Use ${keys.join(' & ')} APIs)`;
     if (keys.length === 3) return ` (Use ${keys.slice(0, -1).join(', ')} & ${keys.slice(-1)} APIs)`;
     return ' (Use All Configured APIs)';
   };
-  
+
 
   return (
     <div className="container mx-auto p-4 md:p-8">
@@ -681,7 +683,7 @@ export default function Home() {
         <ShieldAlert className="h-4 w-4" />
         <AlertTitle>Critical Security Warning & Usage Notice</AlertTitle>
         <AlertDescription>
-          <strong>NEVER enter REAL seed phrases from wallets with significant funds into ANY online tool you do not fully trust and haven't audited.</strong>
+          <strong>NEVER enter REAL seed phrases from wallets with significant funds into ANY online tool you do not fully trust and haven&apos;t audited.</strong>
           This application is for demonstration and educational purposes.
           <ul className="list-disc pl-5 mt-2 space-y-1">
             <li>It uses <code>ethers.js</code> for LOCAL address derivation (primarily EVM-compatible). Your seed phrases are NOT sent to any server for derivation.</li>
@@ -694,7 +696,7 @@ export default function Home() {
                 </ul>
             </li>
             <li>Addresses derived are EVM-compatible. Querying non-EVM chains (e.g., BTC via BlockCypher/Blockstream) with an EVM address may not yield expected results for those specific non-EVM assets but is attempted. For accurate BTC balances from a seed phrase, a Bitcoin-specific derivation path (e.g., BIP44, BIP49, BIP84) and address generation is required, which is beyond the current scope for the seed phrase input method.</li>
-            <li>If API keys/credentials are missing, invalid, rate-limited, or calls fail, results may show 0 balance or "N/A" datasource. Manual checks without keys are ineffective for real balances.</li>
+            <li>If API keys/credentials are missing, invalid, rate-limited, or calls fail, results may show 0 balance or &quot;N/A&quot; datasource. Manual checks without keys are ineffective for real balances.</li>
             <li>The automatic generator REQUIRES at least one set of API credentials to function and find real balances.</li>
             <li><strong>Exposing real seed phrases can lead to PERMANENT LOSS OF FUNDS. Pre-filled API keys/credentials are for demonstration and may be rate-limited or revoked. Use your own for reliable use.</strong></li>
           </ul>
@@ -703,7 +705,7 @@ export default function Home() {
 
       <Card className="shadow-lg mb-6">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5" /> Input Seed Phrases &amp; API Credentials</CardTitle>
+          <CardTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5" /> Input Seed Phrases & API Credentials</CardTitle>
           <CardDescription>
             Provide seed phrases (one per line, up to 1000) and your API credentials. At least one set of API credentials is needed for the automatic generator to find real balances.
           </CardDescription>
@@ -732,7 +734,7 @@ export default function Home() {
               </Button>
             </div>
           </div>
-          
+
           <div className="space-y-4">
              {/* Etherscan */}
             <div className="space-y-1">
@@ -926,7 +928,7 @@ export default function Home() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><ListChecks className="h-5 w-5" /> Manual Seed Phrase Generation</CardTitle>
           <CardDescription>
-            Manually generate a specific number of random seed phrases (varying lengths: 12, 15, 18, 21, 24 words) and check their balances. 
+            Manually generate a specific number of random seed phrases (varying lengths: 12, 15, 18, 21, 24 words) and check their balances.
             <strong>Requires at least one set of API credentials to be set above.</strong>
           </CardDescription>
         </CardHeader>
@@ -934,9 +936,9 @@ export default function Home() {
              <Input
               type="number"
               min="1"
-              max="100" 
+              max="100"
               placeholder="Number of Seed Phrases (1-100)"
-              value={numSeedPhrasesToGenerate.toString()} 
+              value={numSeedPhrasesToGenerate.toString()}
               onChange={(e) => setNumSeedPhrasesToGenerate(Math.max(1, Math.min(100, parseInt(e.target.value, 10) || 1)))}
               className="text-sm border-input focus:ring-accent focus:border-accent font-mono w-full md:w-1/3"
               disabled={isProcessingManual || isAutoGenerating}
@@ -958,7 +960,7 @@ export default function Home() {
             ) : (
               <>
                 <Settings2 className="mr-2 h-4 w-4" />
-                Manual Generate &amp; Check
+                Manual Generate & Check
               </>
             )}
           </Button>
@@ -970,7 +972,7 @@ export default function Home() {
           <CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5" /> Automatic Seed Phrase Inspector</CardTitle>
           <CardDescription>
             Continuously generates random seed phrases (varying lengths) and checks for balances.
-            Batch size for generation is set by the "Number of Seed Phrases" input field above (default 10, max 100).
+            Batch size for generation is set by the &quot;Number of Seed Phrases&quot; input field above (default 10, max 100).
             <strong>Requires at least one set of API credentials to be set in the API Credentials section.</strong>
             Generator state (count, status) is persisted across refreshes unless explicitly stopped.
           </CardDescription>
@@ -1003,7 +1005,7 @@ export default function Home() {
           <div className="flex justify-center space-x-3">
             {!isAutoGenerating || isAutoGenerationPaused ? (
               <Button
-                onClick={() => startAutoGenerating(false)} 
+                onClick={() => startAutoGenerating(false)}
                 disabled={isProcessingManual || (isAutoGenerating && !isAutoGenerationPaused) || (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current && (!blockstreamClientIdInputRef.current || !blockstreamClientSecretInputRef.current))}
                 className="bg-green-600 hover:bg-green-700 text-white w-28"
                 aria-label={isAutoGenerationPaused ? "Resume Generating" : "Start Generating"}
@@ -1024,10 +1026,10 @@ export default function Home() {
               </Button>
             )}
             <Button
-              onClick={() => stopAutoGenerating(true)} 
+              onClick={() => stopAutoGenerating(true)}
               disabled={isProcessingManual || (!isAutoGenerating && !isAutoGenerationPaused) }
-              variant="destructive" 
-              className="w-28" 
+              variant="destructive"
+              className="w-28"
               aria-label="Stop Generating"
             >
               <Square className="mr-2 h-4 w-4" />
@@ -1053,17 +1055,17 @@ export default function Home() {
           <CardHeader>
             <CardTitle>Balance Results (Wallets with Real Positive Balance)</CardTitle>
             <CardDescription>
-              Etherscan API (masked): {etherscanApiKeyInputRef.current?.trim() ? maskValue(etherscanApiKeyInputRef.current, 4, 4) : 'N/A'}.&amp;nbsp;
-              BlockCypher API (masked): {blockcypherApiKeyInputRef.current?.trim() ? maskValue(blockcypherApiKeyInputRef.current, 4, 4) : 'N/A'}.&amp;nbsp;
-              Alchemy API (masked): {alchemyApiKeyInputRef.current?.trim() ? maskValue(alchemyApiKeyInputRef.current, 4, 4) : 'N/A'}.&amp;nbsp;
-              Blockstream Client ID (masked): {blockstreamClientIdInputRef.current?.trim() ? maskValue(blockstreamClientIdInputRef.current, 4, 4) : 'N/A'}.&amp;nbsp;
-              Displaying up to {MAX_DISPLAYED_RESULTS} results with at least one non-zero balance from a real API (newest first). 
+              Etherscan API (masked): {etherscanApiKeyInputRef.current?.trim() ? maskValue(etherscanApiKeyInputRef.current, 4, 4) : 'N/A'}.{' '}
+              BlockCypher API (masked): {blockcypherApiKeyInputRef.current?.trim() ? maskValue(blockcypherApiKeyInputRef.current, 4, 4) : 'N/A'}.{' '}
+              Alchemy API (masked): {alchemyApiKeyInputRef.current?.trim() ? maskValue(alchemyApiKeyInputRef.current, 4, 4) : 'N/A'}.{' '}
+              Blockstream Client ID (masked): {blockstreamClientIdInputRef.current?.trim() ? maskValue(blockstreamClientIdInputRef.current, 4, 4) : 'N/A'}.{' '}
+              Displaying up to {MAX_DISPLAYED_RESULTS} results with at least one non-zero balance from a real API (newest first).
               Showing BTC if available, otherwise first asset found; others indicated by (+X). Wallets with errors and no balance are not shown.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
-              <TableCaption>Derived EVM addresses and their balances. Only wallets with real balances &gt; 0 are shown.</TableCaption>
+              <TableCaption>Derived EVM addresses and their balances. Only wallets with real balances > 0 are shown.</TableCaption>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[20%]">Seed Phrase (Masked)</TableHead>
@@ -1111,8 +1113,8 @@ export default function Home() {
                           >
                             <Copy className="h-3 w-3" />
                           </Button>
-                          <a href={ 
-                            result.displayCryptoName?.toUpperCase() === "BTC" ? `https://blockstream.info/address/${result.derivedAddress}` : 
+                          <a href={
+                            result.displayCryptoName?.toUpperCase() === "BTC" ? `https://blockstream.info/address/${result.derivedAddress}` :
                             result.displayCryptoName?.toUpperCase() === "LTC" ? `https://live.blockcypher.com/ltc/address/${result.derivedAddress}/` :
                             result.displayCryptoName?.toUpperCase() === "DOGE" ? `https://dogechain.info/address/${result.derivedAddress}` :
                             result.displayCryptoName?.toUpperCase() === "DASH" ? `https://explorer.dash.org/address/${result.derivedAddress}` :

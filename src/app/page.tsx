@@ -38,6 +38,13 @@ interface ResultRow extends Omit<ProcessedWalletInfo, 'balanceData' | 'cryptoNam
 
 const MAX_DISPLAYED_RESULTS = 500; 
 const MAX_LOGS = 100;
+type GenerationStatus = 'Stopped' | 'Running' | 'Paused';
+
+// localStorage keys
+const LOCAL_STORAGE_CHECKED_COUNT_KEY = 'autoGenCheckedCount';
+const LOCAL_STORAGE_GENERATION_STATUS_KEY = 'autoGenStatus';
+const LOCAL_STORAGE_GENERATION_PAUSED_KEY = 'autoGenPaused';
+
 
 export default function Home() {
   const [seedPhrasesInput, setSeedPhrasesInput] = useState<string>('');
@@ -66,7 +73,7 @@ export default function Home() {
   const [checkedPhrasesCount, setCheckedPhrasesCount] = useState<number>(0); 
   const [phrasesInBatchDisplay, setPhrasesInBatchDisplay] = useState<number>(0); 
   
-  const [currentGenerationStatus, setCurrentGenerationStatus] = useState<'Stopped' | 'Running' | 'Paused'>('Stopped');
+  const [currentGenerationStatus, setCurrentGenerationStatus] = useState<GenerationStatus>('Stopped');
   const [generationLogs, setGenerationLogs] = useState<string[]>([]);
   
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -82,13 +89,24 @@ export default function Home() {
 
 
   useEffect(() => { isAutoGeneratingRef.current = isAutoGenerating; }, [isAutoGenerating]);
-  useEffect(() => { isAutoGenerationPausedRef.current = isAutoGenerationPaused; }, [isAutoGenerationPaused]);
+  useEffect(() => { 
+    isAutoGenerationPausedRef.current = isAutoGenerationPaused;
+    localStorage.setItem(LOCAL_STORAGE_GENERATION_PAUSED_KEY, isAutoGenerationPaused.toString());
+  }, [isAutoGenerationPaused]);
   useEffect(() => { numSeedPhrasesToGenerateRef.current = numSeedPhrasesToGenerate; }, [numSeedPhrasesToGenerate]);
   useEffect(() => { etherscanApiKeyInputRef.current = etherscanApiKeyInput; }, [etherscanApiKeyInput]);
   useEffect(() => { blockcypherApiKeyInputRef.current = blockcypherApiKeyInput; }, [blockcypherApiKeyInput]);
   useEffect(() => { alchemyApiKeyInputRef.current = alchemyApiKeyInput; }, [alchemyApiKeyInput]);
   useEffect(() => { blockstreamClientIdInputRef.current = blockstreamClientIdInput; }, [blockstreamClientIdInput]);
   useEffect(() => { blockstreamClientSecretInputRef.current = blockstreamClientSecretInput; }, [blockstreamClientSecretInput]);
+
+  useEffect(() => {
+    localStorage.setItem(LOCAL_STORAGE_CHECKED_COUNT_KEY, checkedPhrasesCount.toString());
+  }, [checkedPhrasesCount]);
+
+  useEffect(() => {
+    localStorage.setItem(LOCAL_STORAGE_GENERATION_STATUS_KEY, currentGenerationStatus);
+  }, [currentGenerationStatus]);
 
 
   const addLogMessage = useCallback((message: string) => {
@@ -124,12 +142,15 @@ export default function Home() {
       }
       
       if (itemDerivationError) {
+        // addLogMessage(`Skipping result due to derivation error: ${maskValue(item.seedPhrase,4,4)}`);
         return null;
       }
       if (itemError && allPositiveBalances.length === 0) {
+          // addLogMessage(`Skipping result due to error and no positive balances: ${maskValue(item.seedPhrase,4,4)}`);
           return null;
       }
       if(allPositiveBalances.length === 0) {
+        // addLogMessage(`Skipping result due to no positive balances: ${maskValue(item.seedPhrase,4,4)}`);
         return null;
       }
 
@@ -334,8 +355,7 @@ export default function Home() {
     });
   };
 
-  const stopAutoGenerating = useCallback(() => {
-    if (!isAutoGeneratingRef.current && !isAutoGenerationPausedRef.current) return; 
+  const stopAutoGenerating = useCallback((clearPersistence = true) => {
     addLogMessage('Stopped automatic seed phrase generation.');
     setIsAutoGenerating(false);
     setIsAutoGenerationPaused(false);
@@ -349,13 +369,19 @@ export default function Home() {
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
     }
+    if (clearPersistence) {
+      localStorage.removeItem(LOCAL_STORAGE_CHECKED_COUNT_KEY);
+      localStorage.removeItem(LOCAL_STORAGE_GENERATION_STATUS_KEY);
+      localStorage.removeItem(LOCAL_STORAGE_GENERATION_PAUSED_KEY);
+      setCheckedPhrasesCount(0); 
+    }
   }, [addLogMessage]);
 
   const pauseAutoGenerating = useCallback(() => {
     if (!isAutoGeneratingRef.current || isAutoGenerationPausedRef.current) return;
     addLogMessage('Pausing automatic seed phrase generation.');
-    setIsAutoGenerationPaused(true);
-    setCurrentGenerationStatus('Paused');
+    setIsAutoGenerationPaused(true); // This will trigger useEffect to save to localStorage
+    setCurrentGenerationStatus('Paused'); // This will trigger useEffect to save to localStorage
 
     isAutoGenerationPausedRef.current = true;
 
@@ -384,7 +410,7 @@ export default function Home() {
 
     if (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current && (!blockstreamClientIdInputRef.current || !blockstreamClientSecretInputRef.current)) {
       addLogMessage('Auto-generation stopped: At least one set of API credentials is required to check real balances.');
-      stopAutoGenerating(); 
+      stopAutoGenerating(true); 
       toast({
         title: 'API Credentials Required for Auto-Generation',
         description: 'Please provide at least one set of API credentials to start auto-generation.',
@@ -393,13 +419,7 @@ export default function Home() {
       return;
     }
     
-    let currentCheckedCountVal = 0;
-    setCheckedPhrasesCount(prev => { 
-        currentCheckedCountVal = prev; // Get current value for logging
-        return prev; // No change here, it's updated after successful batch
-    });
-
-    addLogMessage(`Generating batch of ${currentNumToGenerate} seed phrases... (Session total before this batch: ${currentCheckedCountVal})`);
+    addLogMessage(`Generating batch of ${currentNumToGenerate} seed phrases... (Session total before this batch: ${checkedPhrasesCount})`);
     let processedResultsFromFlow = [];
     let actualFoundResults = [];
     try {
@@ -433,7 +453,7 @@ export default function Home() {
       setCheckedPhrasesCount(prevCount => {
           newTotalChecked = prevCount + currentNumToGenerate;
           return newTotalChecked; 
-      });
+      }); // This will trigger useEffect to save to localStorage
       
       if (actualFoundResults.length > 0) {
         setResults(prevResults => [...actualFoundResults, ...prevResults].slice(0, MAX_DISPLAYED_RESULTS));
@@ -452,9 +472,8 @@ export default function Home() {
         timeoutRef.current = setTimeout(() => {
           if(isAutoGeneratingRef.current && isAutoGenerationPausedRef.current) { 
              addLogMessage("Attempting to resume auto-generation after rate limit pause.");
-             setIsAutoGenerationPaused(false);
+             setIsAutoGenerationPaused(false); // This will trigger useEffect to save
              isAutoGenerationPausedRef.current = false;
-             // Ensure runAutoGenerationStep is only called if timeout was not cleared by another action (e.g. stop)
              if (timeoutRef.current !== null && isAutoGeneratingRef.current && !isAutoGenerationPausedRef.current) { 
                 runAutoGenerationStep();
              }
@@ -474,26 +493,41 @@ export default function Home() {
     }
 
     if (isAutoGeneratingRef.current && !isAutoGenerationPausedRef.current) {
-      const delay = (actualFoundResults.length > 0) ? 300 : 500; 
+      const delay = (actualFoundResults.length > 0) ? 1000 : 1500; // Adjusted delays
       timeoutRef.current = setTimeout(runAutoGenerationStep, delay); 
     } else {
-       setCurrentGenerationStatus(isAutoGenerationPausedRef.current ? 'Paused' : 'Stopped');
+       setCurrentGenerationStatus(isAutoGenerationPausedRef.current ? 'Paused' : 'Stopped'); // This will trigger useEffect to save
        if (!isAutoGenerationPausedRef.current) { 
             setPhrasesInBatchDisplay(0);
        }
        if (timeoutRef.current) clearTimeout(timeoutRef.current);
        timeoutRef.current = null;
     }
-  }, [addLogMessage, toast, processAndSetDisplayBalances, stopAutoGenerating, pauseAutoGenerating]);
+  }, [addLogMessage, toast, processAndSetDisplayBalances, stopAutoGenerating, pauseAutoGenerating, checkedPhrasesCount]);
 
 
-  const startAutoGenerating = useCallback(() => {
-    const wasPaused = isAutoGenerationPausedRef.current;
+  const startAutoGenerating = useCallback((isResumingFromRefresh = false) => {
+    const wasPaused = isAutoGenerationPausedRef.current; // State before this action
     const currentBatchSizeSetting = numSeedPhrasesToGenerateRef.current > 0 ? numSeedPhrasesToGenerateRef.current : 1;
 
-    addLogMessage(wasPaused ? 'Resuming automatic seed phrase generation...' : 'Starting automatic seed phrase generation...');
-    if (!wasPaused) {
+    if (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current && (!blockstreamClientIdInputRef.current || !blockstreamClientSecretInputRef.current)) {
+      addLogMessage('Auto-generation cannot start/resume: At least one set of API credentials is required.');
+      toast({
+        title: 'API Credentials Required',
+        description: 'Please provide at least one set of API credentials to start/resume auto-generation.',
+        variant: 'destructive',
+      });
+      if (isResumingFromRefresh) {
+          stopAutoGenerating(true); // Clear persistence if we can't resume due to missing keys
+      }
+      return;
+    }
+
+    addLogMessage(isResumingFromRefresh ? 'Resuming auto-generation from previous session...' : (wasPaused ? 'Resuming automatic seed phrase generation...' : 'Starting automatic seed phrase generation...'));
+    
+    if (!isResumingFromRefresh && !wasPaused) { 
         setCheckedPhrasesCount(0); 
+        // localStorage set by useEffect for checkedPhrasesCount
     }
     
     setPhrasesInBatchDisplay(currentBatchSizeSetting); 
@@ -501,23 +535,74 @@ export default function Home() {
     setIsAutoGenerating(true);
     setIsAutoGenerationPaused(false); 
     setCurrentGenerationStatus('Running');
+    // localStorage will be updated by the useEffect hooks for these state changes
     
     isAutoGeneratingRef.current = true;
     isAutoGenerationPausedRef.current = false;
 
     if (timeoutRef.current) clearTimeout(timeoutRef.current); 
     runAutoGenerationStep(); 
-  }, [addLogMessage, runAutoGenerationStep]);
+  }, [addLogMessage, runAutoGenerationStep, toast, stopAutoGenerating]);
   
+  // Load persisted state from localStorage on initial mount
+  useEffect(() => {
+    const storedCheckedCount = localStorage.getItem(LOCAL_STORAGE_CHECKED_COUNT_KEY);
+    const storedStatus = localStorage.getItem(LOCAL_STORAGE_GENERATION_STATUS_KEY) as GenerationStatus | null;
+    const storedPaused = localStorage.getItem(LOCAL_STORAGE_GENERATION_PAUSED_KEY);
+
+    let shouldTryResume = false;
+    let initialStatus: GenerationStatus = 'Stopped';
+    let initialPaused = false;
+
+    if (storedCheckedCount) {
+      setCheckedPhrasesCount(parseInt(storedCheckedCount, 10));
+    }
+
+    if (storedStatus) {
+      initialStatus = storedStatus;
+      setCurrentGenerationStatus(storedStatus);
+    }
+
+    if (storedPaused) {
+      initialPaused = storedPaused === 'true';
+      setIsAutoGenerationPaused(initialPaused);
+      isAutoGenerationPausedRef.current = initialPaused;
+    }
+    
+    if (initialStatus === 'Running' && !initialPaused) {
+      shouldTryResume = true;
+    } else if ((initialStatus === 'Paused' || initialStatus === 'Running') && initialPaused) {
+      setIsAutoGenerating(true); 
+      isAutoGeneratingRef.current = true;
+      setCurrentGenerationStatus('Paused'); // Ensure status is Paused if it was running but now paused
+      addLogMessage('Auto-generation was paused. Press Resume to continue or Stop to clear.');
+    }
+
+    if (shouldTryResume) {
+        const resumeTimeout = setTimeout(() => {
+             if (etherscanApiKeyInputRef.current || blockcypherApiKeyInputRef.current || alchemyApiKeyInputRef.current || (blockstreamClientIdInputRef.current && blockstreamClientSecretInputRef.current)) {
+                // addLogMessage('Attempting to resume auto-generation from previous session...'); // Logged by startAutoGenerating
+                startAutoGenerating(true); 
+            } else {
+                addLogMessage('Auto-generation was running but API keys are now missing. Please re-enter keys and start manually.');
+                stopAutoGenerating(true); 
+            }
+        }, 100);
+        return () => clearTimeout(resumeTimeout);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Dependencies: startAutoGenerating, stopAutoGenerating, addLogMessage - ensure they are stable
+
+
   useEffect(() => {
     return () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
-      isAutoGeneratingRef.current = false; 
-      isAutoGenerationPausedRef.current = false;
+      // Do not change refs here as component is unmounting, might affect save on pause
     };
   }, []);
+
 
   const getCurrencyIcon = (currencySymbol: string | null | undefined) => {
     if (!currencySymbol) return '?';
@@ -894,6 +979,7 @@ export default function Home() {
             Continuously generates random seed phrases (varying lengths) and checks for balances.
             Batch size for generation is set by the "Number of Seed Phrases" input field above (default 10, max 100).
             <strong>Requires at least one set of API credentials to be set in the API Credentials section.</strong>
+            Generator state (count, status) is persisted across refreshes unless explicitly stopped.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -924,7 +1010,7 @@ export default function Home() {
           <div className="flex justify-center space-x-3">
             {!isAutoGenerating || isAutoGenerationPaused ? (
               <Button
-                onClick={startAutoGenerating}
+                onClick={() => startAutoGenerating(false)} // False: not resuming from refresh explicitly here
                 disabled={isProcessingManual || (isAutoGenerating && !isAutoGenerationPaused) || (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current && (!blockstreamClientIdInputRef.current || !blockstreamClientSecretInputRef.current))}
                 className="bg-green-600 hover:bg-green-700 text-white w-28"
                 aria-label={isAutoGenerationPaused ? "Resume Generating" : "Start Generating"}
@@ -945,7 +1031,7 @@ export default function Home() {
               </Button>
             )}
             <Button
-              onClick={stopAutoGenerating}
+              onClick={() => stopAutoGenerating(true)} // True: clear persistence on manual stop
               disabled={isProcessingManual || (!isAutoGenerating && !isAutoGenerationPaused) }
               variant="destructive" 
               className="w-28" 
@@ -1111,11 +1197,3 @@ export default function Home() {
     </div>
   );
 }
-
-    
-
-    
-
-
-
-

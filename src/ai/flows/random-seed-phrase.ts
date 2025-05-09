@@ -55,10 +55,12 @@ const GenerateAndCheckSeedPhrasesOutputSchema = z.array(SingleSeedPhraseResultSc
 export type GenerateAndCheckSeedPhrasesOutput = z.infer<typeof GenerateAndCheckSeedPhrasesOutputSchema>;
 
 
-// Helper function to generate a random seed phrase of varying lengths
+// Helper function to generate a random seed phrase of varying lengths using CSPRNG for word count selection
 function generateRandomSeedPhraseInternal(): { phrase: string; wordCount: number } {
   const validWordCounts = [12, 15, 18, 21, 24];
-  const randomWordCountIndex = Math.floor(Math.random() * validWordCounts.length);
+  // Use CSPRNG for selecting word count index
+  const randomByte = ethers.randomBytes(1)[0];
+  const randomWordCountIndex = randomByte % validWordCounts.length;
   const wordCount = validWordCounts[randomWordCountIndex];
 
   let entropyBytesLength: number;
@@ -68,9 +70,9 @@ function generateRandomSeedPhraseInternal(): { phrase: string; wordCount: number
     case 18: entropyBytesLength = 24; break; // 192 bits
     case 21: entropyBytesLength = 28; break; // 224 bits
     case 24: entropyBytesLength = 32; break; // 256 bits
-    default: entropyBytesLength = 16; // Default to 12 words / 128 bits
+    default: entropyBytesLength = 16; // Should not happen given the selection logic
   }
-  const entropy = ethers.randomBytes(entropyBytesLength);
+  const entropy = ethers.randomBytes(entropyBytesLength); // This uses CSPRNG
   const mnemonic = ethers.Mnemonic.fromEntropy(entropy);
   return { phrase: mnemonic.phrase, wordCount };
 }
@@ -119,11 +121,13 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
                   collectedApiBalances.push(...balances);
                   if (balances.some(b => b.dataSource === 'Error')) hasApiError = true;
                 }
+                // Ensure both blockstream client ID and secret are provided
                 if (input.blockstreamClientId && input.blockstreamClientSecret) {
                     const balances = await fetchBlockstreamBalance(derivedAddress, input.blockstreamClientId, input.blockstreamClientSecret);
                     collectedApiBalances.push(...balances);
                     if (balances.some(b => b.dataSource === 'Error')) hasApiError = true;
                 } else if (input.blockstreamClientId || input.blockstreamClientSecret) {
+                    // Log if only one of the blockstream credentials is provided
                     console.warn(`Flow: Blockstream API not called for address ${derivedAddress} as both Client ID and Secret are required.`);
                 }
             } catch (apiCallError: any) {
@@ -154,9 +158,9 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
           } else {
              if (derivationError) {
                 console.log(`Flow: Derivation failed for seed phrase "${phrase.substring(0,20)}...". Skipping.`);
-             } else if (!derivedAddress && !derivationError) { // Added !derivationError to avoid double logging
+             } else if (!derivedAddress && !derivationError) {
                 console.log(`Flow: Could not derive address for seed phrase "${phrase.substring(0,20)}...". Skipping.`);
-             } else if (positiveRealFlowBalances.length === 0 && derivedAddress) { // Added derivedAddress check
+             } else if (positiveRealFlowBalances.length === 0 && derivedAddress) {
                 console.log(`Flow: No positive balances found for seed phrase "${phrase.substring(0,20)}..." (Address: ${derivedAddress}). API errors: ${hasApiError}. Skipping.`);
              }
           }
@@ -179,9 +183,6 @@ export async function generateAndCheckSeedPhrases(
 ): Promise<GenerateAndCheckSeedPhrasesOutput> {
   try {
     const results = await generateAndCheckSeedPhrasesFlow(input);
-    // Ensure results is always an array as per the non-nullable part of the schema
-    // (though nullable() is on the Zod schema, the Promise return type is typically non-null array or null)
-    // The flow itself now returns [] on error, so this should be fine.
     return results ?? [];
   } catch (flowError: any) {
     console.error("CRITICAL ERROR in generateAndCheckSeedPhrasesFlow invocation:", flowError.message, flowError.stack);

@@ -11,6 +11,7 @@ export interface AddressBalanceResult {
   dataSource: 'Etherscan API' | 'BlockCypher API' | 'Alchemy API' | 'Blockstream API' | 'Simulated Fallback' | 'N/A' | 'Unknown' | 'Error';
 }
 
+
 export interface ProcessedWalletInfo {
   seedPhrase: string;
   derivedAddress: string | null;
@@ -21,6 +22,7 @@ export interface ProcessedWalletInfo {
   isRealData?: boolean; 
   cryptoName?: string; 
 }
+
 
 const ETHERSCAN_API_URL = 'https://api.etherscan.io/api';
 const BLOCKCYPHER_API_URL = 'https://api.blockcypher.com/v1';

@@ -1,8 +1,11 @@
+
 // @ts-nocheck
 'use client';
 
 import type { ProcessedWalletInfo, AddressBalanceResult } from './actions';
-import { generateAndCheckSeedPhrases, type GenerateAndCheckSeedPhrasesOutput, type GenerateAndCheckSeedPhrasesInput, type FlowSingleSeedPhraseResult, type FlowBalanceResult } from '@/ai/flows/random-seed-phrase';
+import { generateAndCheckSeedPhrases, type GenerateAndCheckSeedPhrasesOutput, type GenerateAndCheckSeedPhrasesInput, type FlowBalanceResult } from '@/ai/flows/random-seed-phrase';
+import type { SingleSeedPhraseResult as FlowSingleSeedPhraseResult } from '@/ai/flows/random-seed-phrase';
+
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import React from 'react';
 import { useState, useRef, useEffect, useCallback } from 'react';
@@ -87,6 +90,7 @@ export default function Home() {
   const alchemyApiKeyInputRef = useRef(alchemyApiKeyInput);
   const blockstreamClientIdInputRef = useRef(blockstreamClientIdInput);
   const blockstreamClientSecretInputRef = useRef(blockstreamClientSecretInput);
+  const checkedPhrasesCountRef = useRef(checkedPhrasesCount);
 
 
   useEffect(() => { isAutoGeneratingRef.current = isAutoGenerating; }, [isAutoGenerating]);
@@ -100,9 +104,10 @@ export default function Home() {
   useEffect(() => { alchemyApiKeyInputRef.current = alchemyApiKeyInput; }, [alchemyApiKeyInput]);
   useEffect(() => { blockstreamClientIdInputRef.current = blockstreamClientIdInput; }, [blockstreamClientIdInput]);
   useEffect(() => { blockstreamClientSecretInputRef.current = blockstreamClientSecretInput; }, [blockstreamClientSecretInput]);
+  useEffect(() => { checkedPhrasesCountRef.current = checkedPhrasesCount; }, [checkedPhrasesCount]);
+
 
   useEffect(() => {
-    // Only save to localStorage if auto-generating or paused, to not overwrite a 0 from a "Stop" action
     if (currentGenerationStatus === 'Running' || currentGenerationStatus === 'Paused') {
         localStorage.setItem(LOCAL_STORAGE_CHECKED_COUNT_KEY, checkedPhrasesCount.toString());
     }
@@ -146,12 +151,15 @@ export default function Home() {
       }
 
       if (itemDerivationError) {
+        // addLogMessage(`Skipping result due to derivation error: ${maskValue(item.seedPhrase,4,4)} - ${itemDerivationError}`);
         return null;
       }
       if (itemError && allPositiveBalances.length === 0) {
+          // addLogMessage(`Skipping result due to error and no positive balance: ${maskValue(item.seedPhrase,4,4)} - ${itemError}`);
           return null;
       }
       if(allPositiveBalances.length === 0) {
+        // addLogMessage(`Skipping result due to no positive balance: ${maskValue(item.seedPhrase,4,4)}`);
         return null;
       }
 
@@ -161,7 +169,13 @@ export default function Home() {
       if (btcBalance) {
         primaryBalance = btcBalance;
       } else if (allPositiveBalances.length > 0) {
-        primaryBalance = allPositiveBalances[0];
+        // Prefer ETH if BTC not found and ETH exists
+        const ethBalance = allPositiveBalances.find(b => b.currency?.toUpperCase() === 'ETH' && b.balance > 0);
+        if (ethBalance) {
+            primaryBalance = ethBalance;
+        } else {
+            primaryBalance = allPositiveBalances[0]; // Fallback to the first positive balance
+        }
       }
 
 
@@ -169,7 +183,7 @@ export default function Home() {
         seedPhrase: item.seedPhrase,
         derivedAddress: item.derivedAddress,
         walletType: item.walletType,
-        balanceData: itemBalances,
+        balanceData: itemBalances, // Store all balances for potential future detailed view
         error: itemError,
         derivationError: itemDerivationError,
         isLoading: false,
@@ -207,8 +221,9 @@ export default function Home() {
       toast({
         title: 'API Key/Credentials Recommended for Real Balances',
         description: 'Provide at least one set of API credentials. Manual checks without them will not find any real balances.',
-        variant: 'default',
+        variant: 'default', // Changed from warning to default as it's informational
       });
+      // Allow proceeding, action function will simulate if no keys
     }
 
 
@@ -370,7 +385,7 @@ export default function Home() {
       timeoutRef.current = null;
     }
     if (clearPersistence) {
-      addLogMessage('Clearing persisted generation state (count, status).');
+      addLogMessage('Clearing persisted generation state (count, status, paused).');
       localStorage.removeItem(LOCAL_STORAGE_CHECKED_COUNT_KEY);
       localStorage.removeItem(LOCAL_STORAGE_GENERATION_STATUS_KEY);
       localStorage.removeItem(LOCAL_STORAGE_GENERATION_PAUSED_KEY);
@@ -405,88 +420,92 @@ export default function Home() {
     }
 
     setCurrentGenerationStatus('Running');
-    const currentNumToGenerate = numSeedPhrasesToGenerateRef.current > 0 ? numSeedPhrasesToGenerateRef.current : 1;
-    setPhrasesInBatchDisplay(currentNumToGenerate);
+    const metaBatchSize = numSeedPhrasesToGenerateRef.current > 0 ? numSeedPhrasesToGenerateRef.current : 1;
+    setPhrasesInBatchDisplay(metaBatchSize); // Display how many checks are planned for this "meta-batch"
 
-    // Use direct state variables for this crucial check
     const apiKeysDirectlyAvailableForStep =
-        etherscanApiKeyInput?.trim() ||
-        blockcypherApiKeyInput?.trim() ||
-        alchemyApiKeyInput?.trim() ||
-        (blockstreamClientIdInput?.trim() && blockstreamClientSecretInput?.trim());
+        etherscanApiKeyInputRef.current?.trim() ||
+        blockcypherApiKeyInputRef.current?.trim() ||
+        alchemyApiKeyInputRef.current?.trim() ||
+        (blockstreamClientIdInputRef.current?.trim() && blockstreamClientSecretInputRef.current?.trim());
 
     if (!apiKeysDirectlyAvailableForStep) {
-      addLogMessage('Auto-generation stopped: At least one set of API credentials is required to check real balances.');
-      stopAutoGenerating(true);
+      addLogMessage('Auto-generation stopped: At least one set of API credentials is required.');
+      stopAutoGenerating(true); // Stop and clear persistence
       toast({
-        title: 'API Credentials Required for Auto-Generation',
-        description: 'Please provide at least one set of API credentials to start auto-generation.',
+        title: 'API Credentials Required',
+        description: 'Auto-generation requires API credentials. Process stopped.',
         variant: 'destructive',
       });
       return;
     }
+    
+    addLogMessage(`Starting meta-batch of ${metaBatchSize} individual phrase checks. Session total: ${checkedPhrasesCountRef.current}`);
+    let allNewResultsForThisMetaBatch: ResultRow[] = [];
+    let foundInThisMetaBatchCount = 0;
 
-    addLogMessage(`Generating batch of ${currentNumToGenerate} seed phrases... (Session total before this batch: ${checkedPhrasesCount})`);
-    let processedResultsFromFlow = [];
-    let actualFoundResults = [];
     try {
-      const input: GenerateAndCheckSeedPhrasesInput = {
-        numSeedPhrases: currentNumToGenerate,
-        etherscanApiKey: etherscanApiKeyInputRef.current || undefined, // Refs are fine for passing to async flow
-        blockcypherApiKey: blockcypherApiKeyInputRef.current || undefined,
-        alchemyApiKey: alchemyApiKeyInputRef.current || undefined,
-        blockstreamClientId: blockstreamClientIdInputRef.current || undefined,
-        blockstreamClientSecret: blockstreamClientSecretInputRef.current || undefined,
-      };
+      for (let i = 0; i < metaBatchSize; i++) {
+        if (!isAutoGeneratingRef.current || isAutoGenerationPausedRef.current) {
+          // If paused/stopped during the meta-batch, exit the loop.
+          // The status update and clearing of timeoutRef will be handled by the condition at the start of the next runAutoGenerationStep call or by pause/stop functions.
+          addLogMessage(`Auto-generation ${isAutoGenerationPausedRef.current ? 'paused' : 'stopped'} during meta-batch.`);
+          return; 
+        }
 
-      const generatedDataFromFlow: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
+        addLogMessage(`Checking phrase ${i + 1}/${metaBatchSize}. Total checked so far in session: ${checkedPhrasesCountRef.current}`);
+        
+        const input: GenerateAndCheckSeedPhrasesInput = {
+          numSeedPhrases: 1, // Generate and check ONE phrase
+          etherscanApiKey: etherscanApiKeyInputRef.current || undefined,
+          blockcypherApiKey: blockcypherApiKeyInputRef.current || undefined,
+          alchemyApiKey: alchemyApiKeyInputRef.current || undefined,
+          blockstreamClientId: blockstreamClientIdInputRef.current || undefined,
+          blockstreamClientSecret: blockstreamClientSecretInputRef.current || undefined,
+        };
 
-      if (!generatedDataFromFlow) {
-          console.error("Genkit Flow Execution Error (Auto-Gen): Returned null");
-          addLogMessage(`Auto-generation error: Genkit flow failed and returned null. Pausing.`);
-          toast({
-            title: 'Genkit Flow Execution Error',
-            description: `Auto-generation failed. Pausing.`,
-            variant: 'destructive',
-          });
-          pauseAutoGenerating();
-          return;
+        const generatedDataFromFlow: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
+        
+        // Increment count for every phrase attempted
+        setCheckedPhrasesCount(prevCount => prevCount + 1);
+
+        if (!generatedDataFromFlow) {
+          console.error("Genkit Flow Error (Auto-Gen single phrase): Returned null");
+          addLogMessage(`Auto-gen: Flow error for phrase ${i + 1}/${metaBatchSize}.`);
+          continue; // Skip to next phrase in meta-batch
+        }
+
+        const processedResultsForThisPhrase = processAndSetDisplayBalances(generatedDataFromFlow, true);
+        if (processedResultsForThisPhrase.length > 0) {
+          allNewResultsForThisMetaBatch.push(...processedResultsForThisPhrase);
+          foundInThisMetaBatchCount += processedResultsForThisPhrase.length;
+          addLogMessage(`Auto-gen: Found balance for phrase ${i + 1}/${metaBatchSize}!`);
+        }
+        // Optional: small delay to prevent UI freeze on very fast checks & be gentler on APIs
+        // await new Promise(resolve => setTimeout(resolve, 50)); 
+      } // End of for loop for meta-batch
+
+      // After the meta-batch loop completes:
+      if (allNewResultsForThisMetaBatch.length > 0) {
+        setResults(prevResults => [...allNewResultsForThisMetaBatch, ...prevResults].slice(0, MAX_DISPLAYED_RESULTS));
       }
+      addLogMessage(`Completed meta-batch of ${metaBatchSize}. Found ${foundInThisMetaBatchCount} new wallet(s) with balance. Session total checked: ${checkedPhrasesCountRef.current}.`);
 
-      processedResultsFromFlow = processAndSetDisplayBalances(generatedDataFromFlow, true);
-      actualFoundResults = processedResultsFromFlow;
-
-      let newTotalChecked = 0;
-      setCheckedPhrasesCount(prevCount => {
-          newTotalChecked = prevCount + currentNumToGenerate;
-          return newTotalChecked;
-      });
-
-      if (actualFoundResults.length > 0) {
-        setResults(prevResults => [...actualFoundResults, ...prevResults].slice(0, MAX_DISPLAYED_RESULTS));
-        addLogMessage(`Processed batch of ${currentNumToGenerate}. Found ${actualFoundResults.length} wallet(s) with balance. Session total: ${newTotalChecked}. Results updated.`);
-      } else {
-        addLogMessage(`Processed batch of ${currentNumToGenerate}. No wallets with balance found. Session total: ${newTotalChecked}.`);
-      }
-
-    } catch (error: any) {
-      console.error("Error during automatic seed phrase generation batch (client-side catch):", error);
-      addLogMessage(`Error in generation batch: ${error.message}`);
-       if (error.message?.includes("rate limit") || error.message?.includes("API key quota exceeded") || error.message?.includes("blocked") || error.status === 429) {
-        addLogMessage("Rate limit or block likely hit. Pausing generation for 1 minute.");
+    } catch (error: any) { // Catch errors for the entire meta-batch processing
+      console.error("Error during automatic seed phrase generation meta-batch:", error);
+      addLogMessage(`Error in auto-gen meta-batch: ${error.message}`);
+      if (error.message?.includes("rate limit") || error.message?.includes("API key quota exceeded") || error.message?.includes("blocked") || error.status === 429) {
+        addLogMessage("Rate limit or API issue likely. Pausing generation for 1 minute.");
         pauseAutoGenerating();
         if (timeoutRef.current) clearTimeout(timeoutRef.current);
         timeoutRef.current = setTimeout(() => {
-          if(isAutoGeneratingRef.current && isAutoGenerationPausedRef.current) {
+          if(isAutoGeneratingRef.current && isAutoGenerationPausedRef.current) { // Check if still in paused auto-gen state
              addLogMessage("Attempting to resume auto-generation after rate limit pause.");
-             setIsAutoGenerationPaused(false);
-             isAutoGenerationPausedRef.current = false;
-             if (timeoutRef.current !== null && isAutoGeneratingRef.current && !isAutoGenerationPausedRef.current) {
-                runAutoGenerationStep();
-             }
+             setIsAutoGenerationPaused(false); // This will trigger the ref update
+             // runAutoGenerationStep will be called by startAutoGenerating or the main useEffect if conditions are met
           }
         }, 60000);
-        return;
+        return; // Exit runAutoGenerationStep, resumption handled by timeout or manual resume
       } else {
         addLogMessage(`Unexpected error in auto-generation: ${error.message}. Pausing.`);
         pauseAutoGenerating();
@@ -495,12 +514,13 @@ export default function Home() {
           description: `An unexpected error occurred: ${error.message}. Auto-generation has been paused.`,
           variant: 'destructive',
         });
-        return;
+        return; // Exit runAutoGenerationStep
       }
     }
 
+    // Schedule next meta-batch
     if (isAutoGeneratingRef.current && !isAutoGenerationPausedRef.current) {
-      const delay = (actualFoundResults.length > 0) ? 1000 : 1500; // Keep delays reasonable
+      const delay = (foundInThisMetaBatchCount > 0) ? 1000 : 1500; // Shorter delay if something was found
       timeoutRef.current = setTimeout(runAutoGenerationStep, delay);
     } else {
        setCurrentGenerationStatus(isAutoGenerationPausedRef.current ? 'Paused' : 'Stopped');
@@ -511,116 +531,115 @@ export default function Home() {
        timeoutRef.current = null;
     }
   }, [
-    addLogMessage, toast, processAndSetDisplayBalances, stopAutoGenerating, pauseAutoGenerating, checkedPhrasesCount,
-    etherscanApiKeyInput, blockcypherApiKeyInput, alchemyApiKeyInput, blockstreamClientIdInput, blockstreamClientSecretInput, // For direct check
-    numSeedPhrasesToGenerate // For currentNumToGenerate from ref
+    addLogMessage, toast, processAndSetDisplayBalances, stopAutoGenerating, pauseAutoGenerating,
+    // Removed checkedPhrasesCount from here to avoid re-creating function unnecessarily due to its frequent updates.
+    // It's accessed via checkedPhrasesCountRef.current inside.
   ]);
 
 
   const startAutoGenerating = useCallback((isResumingFromRefresh = false) => {
-    const wasPaused = isAutoGenerationPausedRef.current;
+    const wasPaused = isAutoGenerationPausedRef.current; // Use ref for initial state
     const currentBatchSizeSetting = numSeedPhrasesToGenerateRef.current > 0 ? numSeedPhrasesToGenerateRef.current : 1;
 
-    // Use direct state variables for this crucial check
     const apiKeysDirectlyAvailableForStart =
-        etherscanApiKeyInput?.trim() ||
-        blockcypherApiKeyInput?.trim() ||
-        alchemyApiKeyInput?.trim() ||
-        (blockstreamClientIdInput?.trim() && blockstreamClientSecretInput?.trim());
+        etherscanApiKeyInputRef.current?.trim() ||
+        blockcypherApiKeyInputRef.current?.trim() ||
+        alchemyApiKeyInputRef.current?.trim() ||
+        (blockstreamClientIdInputRef.current?.trim() && blockstreamClientSecretInputRef.current?.trim());
 
     if (!apiKeysDirectlyAvailableForStart) {
-      addLogMessage('Auto-generation cannot start/resume: At least one set of API credentials is required.');
+      addLogMessage('Auto-generation cannot start/resume: API credentials required.');
       toast({
         title: 'API Credentials Required',
-        description: 'Please provide at least one set of API credentials to start/resume auto-generation.',
+        description: 'Provide API credentials to start/resume auto-generation.',
         variant: 'destructive',
       });
-      if (isResumingFromRefresh) {
+      if (isResumingFromRefresh) { // If resuming from refresh and keys are gone, fully stop and clear.
           stopAutoGenerating(true);
       }
       return;
     }
 
-    addLogMessage(isResumingFromRefresh ? 'Resuming auto-generation from previous session...' : (wasPaused ? 'Resuming automatic seed phrase generation...' : 'Starting automatic seed phrase generation...'));
+    addLogMessage(isResumingFromRefresh ? 'Resuming auto-generation session...' : (wasPaused ? 'Resuming automatic generation...' : 'Starting automatic generation...'));
+    
+    setPhrasesInBatchDisplay(currentBatchSizeSetting); // Set for current/next meta-batch display
 
-    setPhrasesInBatchDisplay(currentBatchSizeSetting);
-
+    // Set state for UI and refs for immediate use in async operations
     setIsAutoGenerating(true);
+    isAutoGeneratingRef.current = true;
     setIsAutoGenerationPaused(false);
+    isAutoGenerationPausedRef.current = false;
     setCurrentGenerationStatus('Running');
 
-    isAutoGeneratingRef.current = true;
-    isAutoGenerationPausedRef.current = false;
-
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    runAutoGenerationStep();
-  }, [
-    addLogMessage, runAutoGenerationStep, toast, stopAutoGenerating,
-    etherscanApiKeyInput, blockcypherApiKeyInput, alchemyApiKeyInput, blockstreamClientIdInput, blockstreamClientSecretInput, // For direct check
-    numSeedPhrasesToGenerate // For currentBatchSizeSetting from ref
-  ]);
+    runAutoGenerationStep(); // Start the first (or resumed) step
+  }, [addLogMessage, runAutoGenerationStep, toast, stopAutoGenerating]);
 
   useEffect(() => {
-    const storedCheckedCount = localStorage.getItem(LOCAL_STORAGE_CHECKED_COUNT_KEY);
+    const storedCheckedCountStr = localStorage.getItem(LOCAL_STORAGE_CHECKED_COUNT_KEY);
     const storedStatus = localStorage.getItem(LOCAL_STORAGE_GENERATION_STATUS_KEY) as GenerationStatus | null;
-    const storedPaused = localStorage.getItem(LOCAL_STORAGE_GENERATION_PAUSED_KEY);
+    const storedPausedStr = localStorage.getItem(LOCAL_STORAGE_GENERATION_PAUSED_KEY);
 
-    const apiKeysDirectlyAvailableOnMount =
-      etherscanApiKeyInput?.trim() ||
-      blockcypherApiKeyInput?.trim() ||
-      alchemyApiKeyInput?.trim() ||
-      (blockstreamClientIdInput?.trim() && blockstreamClientSecretInput?.trim());
+    let initialCheckedCount = 0;
+    if (storedCheckedCountStr) {
+        initialCheckedCount = parseInt(storedCheckedCountStr, 10);
+        addLogMessage(`Loaded checked count from storage: ${initialCheckedCount}`);
+    } else {
+        addLogMessage(`No checked count in storage, initialized to 0.`);
+    }
+    setCheckedPhrasesCount(initialCheckedCount);
+    checkedPhrasesCountRef.current = initialCheckedCount; // Sync ref
+
+    const apiKeysAvailableOnMount =
+      etherscanApiKeyInputRef.current?.trim() ||
+      blockcypherApiKeyInputRef.current?.trim() ||
+      alchemyApiKeyInputRef.current?.trim() ||
+      (blockstreamClientIdInputRef.current?.trim() && blockstreamClientSecretInputRef.current?.trim());
 
     let attemptResume = false;
+    let initialStatus: GenerationStatus = 'Stopped';
+    let initialPaused = false;
 
-    if (storedCheckedCount) {
-      setCheckedPhrasesCount(parseInt(storedCheckedCount, 10));
-      addLogMessage(`Loaded checked count from storage: ${storedCheckedCount}`);
+    if (storedStatus === 'Running' && storedPausedStr === 'false') {
+        initialStatus = 'Running';
+        initialPaused = false;
+        attemptResume = true;
+        addLogMessage('Previous state was Running. Will attempt to resume if API keys are present.');
+    } else if (storedStatus === 'Paused' || (storedStatus === 'Running' && storedPausedStr === 'true')) {
+        // If it was running but then paused, or explicitly paused.
+        initialStatus = 'Paused';
+        initialPaused = true;
+        setIsAutoGenerating(true); // It was auto-generating before being paused
+        isAutoGeneratingRef.current = true;
+        addLogMessage('Previous state was Paused. User can resume or stop.');
+        setPhrasesInBatchDisplay(numSeedPhrasesToGenerateRef.current > 0 ? numSeedPhrasesToGenerateRef.current : 1);
     } else {
-      setCheckedPhrasesCount(0);
-      addLogMessage(`No checked count in storage, initialized to 0.`);
+        // Covers 'Stopped' or null/undefined states
+        initialStatus = 'Stopped';
+        initialPaused = false;
+        addLogMessage('Previous state was Stopped or not set. Initializing to Stopped.');
     }
+    
+    setCurrentGenerationStatus(initialStatus);
+    setIsAutoGenerationPaused(initialPaused);
+    isAutoGenerationPausedRef.current = initialPaused;
 
-    if (storedStatus === 'Running' && storedPaused === 'false') {
-      setCurrentGenerationStatus('Running');
-      setIsAutoGenerationPaused(false);
-      isAutoGenerationPausedRef.current = false;
-      attemptResume = true;
-      addLogMessage('Status from storage: Running. Will attempt to resume.');
-    } else if (storedStatus === 'Paused' || (storedStatus === 'Running' && storedPaused === 'true')) {
-      setCurrentGenerationStatus('Paused');
-      setIsAutoGenerating(true);
-      isAutoGeneratingRef.current = true;
-      setIsAutoGenerationPaused(true);
-      isAutoGenerationPausedRef.current = true;
-      addLogMessage('Status from storage: Paused. User can resume or stop.');
-      setPhrasesInBatchDisplay(numSeedPhrasesToGenerate > 0 ? numSeedPhrasesToGenerate : 1);
-    } else {
-      setCurrentGenerationStatus('Stopped');
-      setIsAutoGenerating(false);
-      isAutoGeneratingRef.current = false;
-      setIsAutoGenerationPaused(false);
-      isAutoGenerationPausedRef.current = false;
-      addLogMessage('Status from storage: Stopped or not set.');
-    }
 
     if (attemptResume) {
-      const resumeTimeout = setTimeout(() => {
-        if (apiKeysDirectlyAvailableOnMount) {
-          addLogMessage('API keys available. Resuming auto-generation...');
-          startAutoGenerating(true); 
-        } else {
-          addLogMessage('Auto-generation was running but API keys are now missing. Stopping and clearing persistence.');
-          stopAutoGenerating(true);
-        }
-      }, 100);
-      return () => clearTimeout(resumeTimeout);
+        const resumeTimeout = setTimeout(() => {
+            if (apiKeysAvailableOnMount) {
+                startAutoGenerating(true); // Pass true for isResumingFromRefresh
+            } else {
+                addLogMessage('Auto-generation was running, but API keys are now missing. Stopping and clearing persistence.');
+                stopAutoGenerating(true); // Stop and clear localStorage
+            }
+        }, 100); // Short delay to allow other initializations
+        return () => clearTimeout(resumeTimeout);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ // Keep this minimal for on-mount behavior, functions will be stable due to useCallback
-      etherscanApiKeyInput, blockcypherApiKeyInput, alchemyApiKeyInput, blockstreamClientIdInput, blockstreamClientSecretInput,
-      numSeedPhrasesToGenerate // for phrasesInBatchDisplay in paused state
-      // startAutoGenerating and stopAutoGenerating are not needed here if they are stable and correctly defined with useCallback
+  }, [ // Keep dependencies minimal for on-mount logic
+      // Functions like startAutoGenerating, stopAutoGenerating, addLogMessage are stable due to useCallback
+      // Refs like numSeedPhrasesToGenerateRef don't trigger re-runs of this effect.
     ]);
 
 
@@ -641,12 +660,12 @@ export default function Home() {
     if (upperSymbol.includes('LTC')) return 'Ł';
     if (upperSymbol.includes('DOGE')) return 'Ð';
     if (upperSymbol.includes('DASH')) return 'D';
-    if (upperSymbol.includes('MATIC')) return 'MATIC'.charAt(0);
+    if (upperSymbol.includes('MATIC')) return 'MATIC'.charAt(0); // Or a more specific icon if available
     return currencySymbol.charAt(0).toUpperCase();
   };
 
   const maskValue = (value: string, start = 5, end = 5) => {
-    if (!value || value.length < start + end + 3) return value;
+    if (!value || value.length < start + end + 3) return value; // Return original if too short to mask meaningfully
     return `${value.substring(0, start)}...${value.substring(value.length - end)}`;
   };
 
@@ -1006,8 +1025,8 @@ export default function Home() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5" /> Automatic Seed Phrase Inspector</CardTitle>
           <CardDescription>
-            Continuously generates random seed phrases (varying lengths) and checks for balances.
-            Batch size for generation is set by the &quot;Number of Seed Phrases&quot; input field above (default 10, max 100).
+            Continuously generates and checks one random seed phrase at a time.
+            The &quot;Number of Seed Phrases&quot; input above (default 10, max 100) now controls the size of a &quot;meta-batch&quot; for grouped logging and brief pauses.
             <strong>Requires at least one set of API credentials to be set in the API Credentials section.</strong>
             Generator state (count, status) is persisted across refreshes unless explicitly stopped.
           </CardDescription>
@@ -1015,7 +1034,7 @@ export default function Home() {
         <CardContent className="space-y-4">
           <div className="text-center grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <p className="text-sm text-muted-foreground mb-1">PHRASES IN CURRENT BATCH</p>
+              <p className="text-sm text-muted-foreground mb-1">PHRASES IN CURRENT META-BATCH</p>
               <p className="text-5xl font-bold text-primary">{phrasesInBatchDisplay}</p>
             </div>
             <div>
@@ -1041,7 +1060,7 @@ export default function Home() {
             {!isAutoGenerating || isAutoGenerationPaused ? (
               <Button
                 onClick={() => startAutoGenerating(false)}
-                disabled={isProcessingManual || (isAutoGenerating && !isAutoGenerationPaused) || (!etherscanApiKeyInput && !blockcypherApiKeyInput && !alchemyApiKeyInput && (!blockstreamClientIdInput || !blockstreamClientSecretInput))}
+                disabled={isProcessingManual || (isAutoGenerating && !isAutoGenerationPaused) || (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current && (!blockstreamClientIdInputRef.current || !blockstreamClientSecretInputRef.current))}
                 className="bg-green-600 hover:bg-green-700 text-white w-28"
                 aria-label={isAutoGenerationPaused ? "Resume Generating" : "Start Generating"}
               >
@@ -1100,7 +1119,7 @@ export default function Home() {
           </CardHeader>
           <CardContent>
             <Table>
-              <TableCaption>Derived EVM addresses and their balances. Only wallets with real balances > 0 are shown.</TableCaption>
+              <TableCaption>Derived EVM addresses and their balances. Only wallets with real balances &gt; 0 are shown.</TableCaption>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[20%]">Seed Phrase (Masked)</TableHead>
@@ -1227,4 +1246,3 @@ export default function Home() {
     </div>
   );
 }
-

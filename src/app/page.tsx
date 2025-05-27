@@ -69,7 +69,7 @@ export default function Home() {
 
   const [results, setResults] = useState<ResultRow[]>([]);
   const [isProcessingManual, setIsProcessingManual] = useState<boolean>(false);
-  const [numSeedPhrasesToGenerate, setNumSeedPhrasesToGenerate] = useState<number>(10);
+  const [numSeedPhrasesToGenerate, setNumSeedPhrasesToGenerate] = useState<number>(100); // Default to 100
 
   const { toast } = useToast();
 
@@ -97,7 +97,7 @@ export default function Home() {
   useEffect(() => { isAutoGeneratingRef.current = isAutoGenerating; }, [isAutoGenerating]);
   useEffect(() => {
     isAutoGenerationPausedRef.current = isAutoGenerationPaused;
-    if (isAutoGeneratingRef.current) { 
+    if (isAutoGeneratingRef.current) {
         localStorage.setItem(LOCAL_STORAGE_GENERATION_PAUSED_KEY, isAutoGenerationPaused.toString());
     }
   }, [isAutoGenerationPaused]);
@@ -108,7 +108,7 @@ export default function Home() {
   useEffect(() => { alchemyApiKeyInputRef.current = alchemyApiKeyInput; }, [alchemyApiKeyInput]);
   useEffect(() => { blockstreamClientIdInputRef.current = blockstreamClientIdInput; }, [blockstreamClientIdInput]);
   useEffect(() => { blockstreamClientSecretInputRef.current = blockstreamClientSecretInput; }, [blockstreamClientSecretInput]);
-  
+
   useEffect(() => {
     checkedPhrasesCountRef.current = checkedPhrasesCount;
     if (currentGenerationStatus === 'Running' || currentGenerationStatus === 'Paused') {
@@ -118,7 +118,7 @@ export default function Home() {
 
 
   useEffect(() => {
-    if (isAutoGeneratingRef.current) { 
+    if (isAutoGeneratingRef.current) {
         localStorage.setItem(LOCAL_STORAGE_GENERATION_STATUS_KEY, currentGenerationStatus);
     }
   }, [currentGenerationStatus]);
@@ -152,12 +152,12 @@ export default function Home() {
       if (isFromFlow) {
         const flowItem = item as FlowSingleSeedPhraseResult;
         itemBalances = flowItem.balances || [];
-        allPositiveBalances = itemBalances; 
+        allPositiveBalances = itemBalances;
         wordCountVal = flowItem.wordCount;
       } else {
         const actionItem = item as ProcessedWalletInfo;
         itemBalances = actionItem.balanceData || [];
-        allPositiveBalances = itemBalances; 
+        allPositiveBalances = itemBalances;
         wordCountVal = actionItem.seedPhrase.split(' ').length;
       }
 
@@ -181,7 +181,7 @@ export default function Home() {
         if (ethBalance) {
             primaryBalance = ethBalance;
         } else {
-            primaryBalance = allPositiveBalances[0]; 
+            primaryBalance = allPositiveBalances[0];
         }
       }
 
@@ -190,7 +190,7 @@ export default function Home() {
         seedPhrase: item.seedPhrase,
         derivedAddress: item.derivedAddress,
         walletType: item.walletType,
-        balanceData: itemBalances, 
+        balanceData: itemBalances,
         error: itemError,
         derivationError: itemDerivationError,
         isLoading: false,
@@ -228,7 +228,7 @@ export default function Home() {
       toast({
         title: 'API Key/Credentials Recommended for Real Balances',
         description: 'Provide at least one set of API credentials. Manual checks without them will not find any real balances.',
-        variant: 'default', 
+        variant: 'default',
       });
     }
 
@@ -395,7 +395,7 @@ export default function Home() {
       localStorage.removeItem(LOCAL_STORAGE_CHECKED_COUNT_KEY);
       localStorage.removeItem(LOCAL_STORAGE_GENERATION_STATUS_KEY);
       localStorage.removeItem(LOCAL_STORAGE_GENERATION_PAUSED_KEY);
-      setCheckedPhrasesCount(0); 
+      setCheckedPhrasesCount(0);
       checkedPhrasesCountRef.current = 0;
     }
   }, [addLogMessage]);
@@ -446,12 +446,12 @@ export default function Home() {
       });
       return;
     }
-    
+
     addLogMessage(`Starting auto-generation batch of ${metaBatchSize} phrases. Session total (before this batch): ${checkedPhrasesCountRef.current}`);
-    
+
     try {
       const input: GenerateAndCheckSeedPhrasesInput = {
-        numSeedPhrases: metaBatchSize, 
+        numSeedPhrases: metaBatchSize,
         etherscanApiKey: etherscanApiKeyInputRef.current || undefined,
         blockcypherApiKey: blockcypherApiKeyInputRef.current || undefined,
         alchemyApiKey: alchemyApiKeyInputRef.current || undefined,
@@ -460,7 +460,7 @@ export default function Home() {
       };
 
       const generatedDataFromFlow: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
-      
+
       setCheckedPhrasesCount(prevCount => prevCount + metaBatchSize);
 
       if (!generatedDataFromFlow) {
@@ -473,10 +473,10 @@ export default function Home() {
           addLogMessage(`Auto-gen: Found ${processedResultsForBatch.length} wallet(s) with balance in this batch.`);
         }
       }
-      
+
       addLogMessage(`Completed auto-generation batch of ${metaBatchSize}. Total phrases attempted in session: ${checkedPhrasesCountRef.current}.`);
 
-    } catch (error: any) { 
+    } catch (error: any) {
       console.error("Error during automatic seed phrase generation batch:", error);
       addLogMessage(`Error in auto-gen batch: ${error.message}`);
       if (error.message?.includes("rate limit") || error.message?.includes("API key quota exceeded") || error.message?.includes("blocked") || error.status === 429) {
@@ -484,13 +484,13 @@ export default function Home() {
         pauseAutoGenerating();
         if (timeoutRef.current) clearTimeout(timeoutRef.current);
         timeoutRef.current = setTimeout(() => {
-          if(isAutoGeneratingRef.current && isAutoGenerationPausedRef.current) { 
+          if(isAutoGeneratingRef.current && isAutoGenerationPausedRef.current) {
              addLogMessage("Attempting to resume auto-generation after rate limit pause.");
-             setIsAutoGenerationPaused(false); 
+             setIsAutoGenerationPaused(false);
              // Will be picked up by startAutoGenerating or manual resume
           }
         }, 60000);
-        return; 
+        return;
       } else {
         addLogMessage(`Unexpected error in auto-generation: ${error.message}. Pausing.`);
         pauseAutoGenerating();
@@ -499,12 +499,12 @@ export default function Home() {
           description: `An unexpected error occurred: ${error.message}. Auto-generation has been paused.`,
           variant: 'destructive',
         });
-        return; 
+        return;
       }
     }
 
     if (isAutoGeneratingRef.current && !isAutoGenerationPausedRef.current) {
-      const delay = 1500; 
+      const delay = 1500;
       timeoutRef.current = setTimeout(runAutoGenerationStep, delay);
     } else {
        setCurrentGenerationStatus(isAutoGenerationPausedRef.current ? 'Paused' : 'Stopped');
@@ -520,7 +520,7 @@ export default function Home() {
 
 
   const startAutoGenerating = useCallback((isResumingFromRefresh = false) => {
-    const wasPaused = isAutoGenerationPausedRef.current; 
+    const wasPaused = isAutoGenerationPausedRef.current;
     const currentBatchSizeSetting = numSeedPhrasesToGenerateRef.current > 0 ? numSeedPhrasesToGenerateRef.current : 1;
 
     const apiKeysDirectlyAvailableForStart =
@@ -536,15 +536,15 @@ export default function Home() {
         description: 'Provide API credentials to start/resume auto-generation.',
         variant: 'destructive',
       });
-      if (isResumingFromRefresh) { 
+      if (isResumingFromRefresh) {
           stopAutoGenerating(true);
       }
       return;
     }
 
     addLogMessage(isResumingFromRefresh ? 'Resuming auto-generation session...' : (wasPaused ? 'Resuming automatic generation...' : 'Starting automatic generation...'));
-    
-    setPhrasesInBatchDisplay(currentBatchSizeSetting); 
+
+    setPhrasesInBatchDisplay(currentBatchSizeSetting);
 
     setIsAutoGenerating(true);
     isAutoGeneratingRef.current = true;
@@ -553,12 +553,12 @@ export default function Home() {
     setCurrentGenerationStatus('Running');
 
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    runAutoGenerationStep(); 
+    runAutoGenerationStep();
   }, [addLogMessage, runAutoGenerationStep, toast, stopAutoGenerating]);
 
 
   useEffect(() => {
-    let batchSizeForDisplayLogic = 10; // Default for display logic
+    let batchSizeForDisplayLogic = 100; // Default for display logic (updated to 100)
     const storedBatchSizeStr = localStorage.getItem(LOCAL_STORAGE_AUTO_GEN_BATCH_SIZE_KEY);
     if (storedBatchSizeStr) {
         const storedBatchSize = parseInt(storedBatchSizeStr, 10);
@@ -566,9 +566,16 @@ export default function Home() {
             setNumSeedPhrasesToGenerate(storedBatchSize); // Update state for input
             batchSizeForDisplayLogic = storedBatchSize;   // Use for immediate display logic
             console.log(`Loaded batch size from storage: ${storedBatchSize}`);
+        } else {
+            // If stored value is invalid, set input to default and use default for display
+            setNumSeedPhrasesToGenerate(100);
+            console.log(`Invalid batch size in storage, defaulting to ${batchSizeForDisplayLogic}.`);
         }
+    } else {
+        // No stored value, input is already at default 100, use 100 for display
+        console.log(`No batch size in storage, using default: ${batchSizeForDisplayLogic}.`);
     }
-    // numSeedPhrasesToGenerateRef will be updated by its own effect after setNumSeedPhrasesToGenerate
+
 
     const storedCheckedCountStr = localStorage.getItem(LOCAL_STORAGE_CHECKED_COUNT_KEY);
     const storedStatus = localStorage.getItem(LOCAL_STORAGE_GENERATION_STATUS_KEY) as GenerationStatus | null;
@@ -598,27 +605,27 @@ export default function Home() {
     if (storedStatus === 'Running' && storedPausedStr === 'false') {
         initialStatus = 'Running';
         initialPaused = false;
-        attemptResume = true; 
-        setIsAutoGenerating(true); 
+        attemptResume = true;
+        setIsAutoGenerating(true);
         isAutoGeneratingRef.current = true;
         console.log('Previous state was Running. Will attempt to resume if API keys are present.');
         setPhrasesInBatchDisplay(batchSizeForDisplayLogic > 0 ? batchSizeForDisplayLogic : 1);
     } else if (storedStatus === 'Paused' || (storedStatus === 'Running' && storedPausedStr === 'true')) {
         initialStatus = 'Paused';
         initialPaused = true;
-        setIsAutoGenerating(true); 
+        setIsAutoGenerating(true);
         isAutoGeneratingRef.current = true;
         console.log('Previous state was Paused. User can resume or stop.');
         setPhrasesInBatchDisplay(batchSizeForDisplayLogic > 0 ? batchSizeForDisplayLogic : 1);
     } else {
         initialStatus = 'Stopped';
         initialPaused = false;
-        setIsAutoGenerating(false); 
+        setIsAutoGenerating(false);
         isAutoGeneratingRef.current = false;
         console.log('Previous state was Stopped or not set. Initializing to Stopped.');
         setPhrasesInBatchDisplay(0);
     }
-    
+
     setCurrentGenerationStatus(initialStatus);
     setIsAutoGenerationPaused(initialPaused);
     isAutoGenerationPausedRef.current = initialPaused;
@@ -626,16 +633,16 @@ export default function Home() {
     if (attemptResume) {
         const resumeTimeout = setTimeout(() => {
             if (apiKeysAvailableOnMount) {
-                startAutoGenerating(true); 
+                startAutoGenerating(true);
             } else {
                 console.log('Auto-generation was running, but API keys are now missing. Stopping and clearing persistence.');
-                stopAutoGenerating(true); 
+                stopAutoGenerating(true);
             }
-        }, 100); 
+        }, 100);
         return () => clearTimeout(resumeTimeout);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startAutoGenerating, stopAutoGenerating, addLogMessage]); 
+  }, [startAutoGenerating, stopAutoGenerating, addLogMessage]);
 
 
   useEffect(() => {
@@ -655,12 +662,12 @@ export default function Home() {
     if (upperSymbol.includes('LTC')) return 'Ł';
     if (upperSymbol.includes('DOGE')) return 'Ð';
     if (upperSymbol.includes('DASH')) return 'D';
-    if (upperSymbol.includes('MATIC')) return 'MATIC'.charAt(0); 
+    if (upperSymbol.includes('MATIC')) return 'MATIC'.charAt(0);
     return currencySymbol.charAt(0).toUpperCase();
   };
 
   const maskValue = (value: string, start = 5, end = 5) => {
-    if (!value || value.length < start + end + 3) return value; 
+    if (!value || value.length < start + end + 3) return value;
     return `${value.substring(0, start)}...${value.substring(value.length - end)}`;
   };
 
@@ -1021,7 +1028,7 @@ export default function Home() {
           <CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5" /> Automatic Seed Phrase Inspector</CardTitle>
           <CardDescription>
             Continuously generates and checks random seed phrases.
-            The &quot;Number of Seed Phrases&quot; input above (default 10, max 100) controls the size of each generation &quot;batch&quot; for grouped logging and processing.
+            The &quot;Number of Seed Phrases&quot; input above (default 100, max 100) controls the size of each generation &quot;batch&quot; for grouped logging and processing.
             <strong>Requires at least one set of API credentials to be set in the API Credentials section.</strong>
             Generator state (count, status, batch size) is persisted across refreshes unless explicitly stopped.
           </CardDescription>

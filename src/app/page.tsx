@@ -60,6 +60,7 @@ export default function Home() {
   const [blockstreamClientSecretInput, setBlockstreamClientSecretInput] = useState<string>(process.env.NEXT_PUBLIC_BLOCKSTREAM_CLIENT_SECRET || 'Czvm15Usa29MlYcnJRPK7ZeLNUm1x7kP');
   const [cryptoApisApiKeyInput, setCryptoApisApiKeyInput] = useState<string>('1e50a99cde21ebd081ebcc046da521524a5e4e8e');
   const [mobulaApiKeyInput, setMobulaApiKeyInput] = useState<string>('93a9e533-c035-45ff-9802-516568e2f16a');
+  const [moralisApiKeyInput, setMoralisApiKeyInput] = useState<string>('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6IjY3MzE0ZmM0LTQzYWItNDI4MC04YTNmLWFhMzc3NTE5MmVjZiIsIm9yZ0lkIjoiNDUyMzQ2IiwidXNlcklkIjoiNDY1NDIzIiwidHlwZUlkIjoiZGJmYjk1ZjAtOGY2Ni00YmYyLTgwYjYtNTQxNGI4OTU1ZThjIiwidHlwZSI6IlBST0pFQ1QiLCJpYXQiOjE3NDk1MTA3NDIsImV4cCI6NDkwNTI3MDc0Mn0.-ueWDNCeaUKIOMihmnrn2WB-u5T1fPxLhw5jVyqSC74');
 
 
   const [showEtherscanKey, setShowEtherscanKey] = useState(false);
@@ -69,6 +70,7 @@ export default function Home() {
   const [showBlockstreamClientSecret, setShowBlockstreamClientSecret] = useState(false);
   const [showCryptoApisApiKey, setShowCryptoApisApiKey] = useState(false);
   const [showMobulaApiKey, setShowMobulaApiKey] = useState(false);
+  const [showMoralisApiKey, setShowMoralisApiKey] = useState(false);
 
 
   const [results, setResults] = useState<ResultRow[]>([]);
@@ -97,6 +99,7 @@ export default function Home() {
   const blockstreamClientSecretInputRef = useRef(blockstreamClientSecretInput);
   const cryptoApisApiKeyInputRef = useRef(cryptoApisApiKeyInput);
   const mobulaApiKeyInputRef = useRef(mobulaApiKeyInput);
+  const moralisApiKeyInputRef = useRef(moralisApiKeyInput);
   const checkedPhrasesCountRef = useRef(checkedPhrasesCount);
 
 
@@ -116,6 +119,7 @@ export default function Home() {
   useEffect(() => { blockstreamClientSecretInputRef.current = blockstreamClientSecretInput; }, [blockstreamClientSecretInput]);
   useEffect(() => { cryptoApisApiKeyInputRef.current = cryptoApisApiKeyInput; }, [cryptoApisApiKeyInput]);
   useEffect(() => { mobulaApiKeyInputRef.current = mobulaApiKeyInput; }, [mobulaApiKeyInput]);
+  useEffect(() => { moralisApiKeyInputRef.current = moralisApiKeyInput; }, [moralisApiKeyInput]);
 
 
   useEffect(() => {
@@ -234,8 +238,10 @@ export default function Home() {
     const hasBlockstreamCreds = blockstreamClientIdInputRef.current.trim() && blockstreamClientSecretInputRef.current.trim();
     const hasCryptoApis = cryptoApisApiKeyInputRef.current.trim();
     const hasMobula = mobulaApiKeyInputRef.current.trim();
+    const hasMoralis = moralisApiKeyInputRef.current.trim();
 
-    if (!hasEtherscanKey && !hasBlockcypherKey && !hasAlchemyKey && !hasBlockstreamCreds && !hasCryptoApis && !hasMobula) {
+
+    if (!hasEtherscanKey && !hasBlockcypherKey && !hasAlchemyKey && !hasBlockstreamCreds && !hasCryptoApis && !hasMobula && !hasMoralis) {
       toast({
         title: 'API Key/Credentials Recommended for Real Balances',
         description: 'Provide at least one set of API credentials. Manual checks without them will not find any real balances.',
@@ -280,7 +286,8 @@ export default function Home() {
         blockstreamClientIdInputRef.current || undefined,
         blockstreamClientSecretInputRef.current || undefined,
         cryptoApisApiKeyInputRef.current || undefined,
-        mobulaApiKeyInputRef.current || undefined
+        mobulaApiKeyInputRef.current || undefined,
+        moralisApiKeyInputRef.current || undefined
       );
 
       const finalResults = processAndSetDisplayBalances(processedDataFromAction, false);
@@ -293,7 +300,7 @@ export default function Home() {
       let toastMessage = `Finished processing ${validPhrases.length} valid seed phrase(s). `;
       toastMessage += `Found ${displayableResults.length} wallet(s) with at least one non-zero balance.`;
 
-      if (!hasEtherscanKey && !hasBlockcypherKey && !hasAlchemyKey && !hasBlockstreamCreds && !hasCryptoApis && !hasMobula && validPhrases.length > 0) {
+      if (!hasEtherscanKey && !hasBlockcypherKey && !hasAlchemyKey && !hasBlockstreamCreds && !hasCryptoApis && !hasMobula && !hasMoralis && validPhrases.length > 0) {
         toastMessage += ' No API keys/credentials were provided, so no real balances could be fetched.';
       }
 
@@ -316,7 +323,7 @@ export default function Home() {
   };
 
   const handleManualGenerateAndCheck = async () => {
-    if (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current && (!blockstreamClientIdInputRef.current || !blockstreamClientSecretInputRef.current) && !cryptoApisApiKeyInputRef.current && !mobulaApiKeyInputRef.current) {
+    if (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current && (!blockstreamClientIdInputRef.current || !blockstreamClientSecretInputRef.current) && !cryptoApisApiKeyInputRef.current && !mobulaApiKeyInputRef.current && !moralisApiKeyInputRef.current) {
       toast({
         title: 'API Key(s)/Credentials Required',
         description: 'Please provide at least one set of API credentials for the generator to fetch real balances.',
@@ -336,6 +343,7 @@ export default function Home() {
         blockstreamClientSecret: blockstreamClientSecretInputRef.current || undefined,
         cryptoApisApiKey: cryptoApisApiKeyInputRef.current || undefined,
         mobulaApiKey: mobulaApiKeyInputRef.current || undefined,
+        moralisApiKey: moralisApiKeyInputRef.current || undefined,
       };
 
       const generatedDataFromFlow: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
@@ -451,7 +459,8 @@ export default function Home() {
         alchemyApiKeyInputRef.current?.trim() ||
         (blockstreamClientIdInputRef.current?.trim() && blockstreamClientSecretInputRef.current?.trim()) ||
         cryptoApisApiKeyInputRef.current?.trim() ||
-        mobulaApiKeyInputRef.current?.trim();
+        mobulaApiKeyInputRef.current?.trim() ||
+        moralisApiKeyInputRef.current?.trim();
 
 
     if (!apiKeysDirectlyAvailableForStep) {
@@ -477,6 +486,7 @@ export default function Home() {
         blockstreamClientSecret: blockstreamClientSecretInputRef.current || undefined,
         cryptoApisApiKey: cryptoApisApiKeyInputRef.current || undefined,
         mobulaApiKey: mobulaApiKeyInputRef.current || undefined,
+        moralisApiKey: moralisApiKeyInputRef.current || undefined,
       };
 
       const generatedDataFromFlow: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
@@ -549,7 +559,8 @@ export default function Home() {
         alchemyApiKeyInputRef.current?.trim() ||
         (blockstreamClientIdInputRef.current?.trim() && blockstreamClientSecretInputRef.current?.trim()) ||
         cryptoApisApiKeyInputRef.current?.trim() ||
-        mobulaApiKeyInputRef.current?.trim();
+        mobulaApiKeyInputRef.current?.trim() ||
+        moralisApiKeyInputRef.current?.trim();
 
     if (!apiKeysDirectlyAvailableForStart) {
       addLogMessage('Auto-generation cannot start/resume: API credentials required.');
@@ -619,7 +630,8 @@ export default function Home() {
       alchemyApiKeyInputRef.current?.trim() ||
       (blockstreamClientIdInputRef.current?.trim() && blockstreamClientSecretInputRef.current?.trim()) ||
       cryptoApisApiKeyInputRef.current?.trim() ||
-      mobulaApiKeyInputRef.current?.trim();
+      mobulaApiKeyInputRef.current?.trim() ||
+      moralisApiKeyInputRef.current?.trim();
 
     let attemptResume = false;
     let initialStatus: GenerationStatus = 'Stopped';
@@ -726,6 +738,8 @@ export default function Home() {
         return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-cyan-100 text-cyan-800 dark:bg-cyan-800/30 dark:text-cyan-300">CryptoAPIs</span>;
       case 'Mobula.io API':
         return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-pink-100 text-pink-800 dark:bg-pink-800/30 dark:text-pink-300">Mobula.io</span>;
+      case 'Moralis API':
+        return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-800 dark:bg-indigo-800/30 dark:text-indigo-300">Moralis</span>;
       case 'Simulated Fallback':
          return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-800/30 dark:text-amber-300">Simulated</span>;
       case 'N/A':
@@ -744,6 +758,8 @@ export default function Home() {
     if (blockstreamClientIdInputRef.current?.trim() && blockstreamClientSecretInputRef.current?.trim()) keys.push('Blockstream');
     if (cryptoApisApiKeyInputRef.current?.trim()) keys.push('CryptoAPIs');
     if (mobulaApiKeyInputRef.current?.trim()) keys.push('Mobula.io');
+    if (moralisApiKeyInputRef.current?.trim()) keys.push('Moralis');
+
 
     if (keys.length === 0) return ' (No API Credentials - Manual Check Ineffective)';
     if (keys.length === 1) return ` (Use ${keys[0]} API)`;
@@ -780,9 +796,10 @@ export default function Home() {
                     <li><strong>Blockstream:</strong> For Bitcoin (BTC) mainnet.</li>
                     <li><strong>CryptoAPIs.io:</strong> For BTC, ETH, LTC, DOGE, DASH and other chains supported by their API.</li>
                     <li><strong>Mobula.io:</strong> For portfolio tracking across various chains. (Placeholder implementation for API call)</li>
+                    <li><strong>Moralis:</strong> For EVM native and token balances across various chains.</li>
                 </ul>
             </li>
-            <li>Addresses derived are EVM-compatible. Querying non-EVM chains (e.g., BTC via BlockCypher/Blockstream/CryptoAPIs.io/Mobula.io) with an EVM address may not yield expected results for those specific non-EVM assets but is attempted. For accurate BTC balances from a seed phrase, a Bitcoin-specific derivation path (e.g., BIP44, BIP49, BIP84) and address generation is required, which is beyond the current scope for the seed phrase input method.</li>
+            <li>Addresses derived are EVM-compatible. Querying non-EVM chains (e.g., BTC via BlockCypher/Blockstream/CryptoAPIs.io/Mobula.io/Moralis) with an EVM address may not yield expected results for those specific non-EVM assets but is attempted. For accurate BTC balances from a seed phrase, a Bitcoin-specific derivation path (e.g., BIP44, BIP49, BIP84) and address generation is required, which is beyond the current scope for the seed phrase input method.</li>
             <li>If API keys/credentials are missing, invalid, rate-limited, or calls fail, results may show 0 balance or &quot;N/A&quot; datasource. Manual checks without keys are ineffective for real balances.</li>
             <li>The automatic generator REQUIRES at least one set of API credentials to function and find real balances.</li>
             <li><strong>Exposing real seed phrases can lead to PERMANENT LOSS OF FUNDS. Pre-filled API keys/credentials are for demonstration and may be rate-limited or revoked. Use your own for reliable use.</strong></li>
@@ -917,6 +934,38 @@ export default function Home() {
                   <AlertTitle className="font-semibold">CryptoAPIs.io API</AlertTitle>
                   <AlertDescription>
                     For various chains like BTC, ETH, LTC etc.
+                  </AlertDescription>
+                </Alert>
+            </div>
+            {/* Moralis */}
+            <div className="space-y-1">
+                <div className="relative">
+                  <Input
+                    type={showMoralisApiKey ? "text" : "password"}
+                    placeholder="Moralis API Key"
+                    value={moralisApiKeyInput}
+                    onChange={(e) => setMoralisApiKeyInput(e.target.value)}
+                    className="text-sm border-input focus:ring-accent focus:border-accent font-mono pr-10"
+                    disabled={isProcessingManual || isAutoGenerating}
+                    aria-label="Moralis API Key Input"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-muted-foreground hover:text-primary"
+                    onClick={() => setShowMoralisApiKey(!showMoralisApiKey)}
+                    disabled={isProcessingManual || isAutoGenerating}
+                    aria-label={showMoralisApiKey ? "Hide Moralis API Key" : "Show Moralis API Key"}
+                  >
+                    {showMoralisApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
+                <Alert variant="info" className="text-xs">
+                  <DatabaseZap className="h-4 w-4" />
+                  <AlertTitle className="font-semibold">Moralis API</AlertTitle>
+                  <AlertDescription>
+                    For EVM native &amp; token balances.
                   </AlertDescription>
                 </Alert>
             </div>
@@ -1099,7 +1148,7 @@ export default function Home() {
         <CardFooter className="flex flex-col sm:flex-row gap-2 pt-4 border-t">
           <Button
             onClick={handleManualGenerateAndCheck}
-            disabled={isProcessingManual || isAutoGenerating || (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current && (!blockstreamClientIdInputRef.current || !blockstreamClientSecretInputRef.current) && !cryptoApisApiKeyInputRef.current && !mobulaApiKeyInputRef.current)}
+            disabled={isProcessingManual || isAutoGenerating || (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current && (!blockstreamClientIdInputRef.current || !blockstreamClientSecretInputRef.current) && !cryptoApisApiKeyInputRef.current && !mobulaApiKeyInputRef.current && !moralisApiKeyInputRef.current)}
             className="w-full sm:w-auto bg-accent hover:bg-accent/90 text-accent-foreground"
             aria-label="Manual Generate and Check Seed Phrases Button"
           >
@@ -1157,7 +1206,7 @@ export default function Home() {
             {!isAutoGenerating || isAutoGenerationPaused ? (
               <Button
                 onClick={() => startAutoGenerating(false)}
-                disabled={isProcessingManual || (isAutoGenerating && !isAutoGenerationPaused) || (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current && (!blockstreamClientIdInputRef.current || !blockstreamClientSecretInputRef.current) && !cryptoApisApiKeyInputRef.current && !mobulaApiKeyInputRef.current)}
+                disabled={isProcessingManual || (isAutoGenerating && !isAutoGenerationPaused) || (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current && (!blockstreamClientIdInputRef.current || !blockstreamClientSecretInputRef.current) && !cryptoApisApiKeyInputRef.current && !mobulaApiKeyInputRef.current && !moralisApiKeyInputRef.current)}
                 className="bg-green-600 hover:bg-green-700 text-white w-28"
                 aria-label={isAutoGenerationPaused ? "Resume Generating" : "Start Generating"}
               >
@@ -1212,6 +1261,7 @@ export default function Home() {
               Blockstream Client ID (masked): {blockstreamClientIdInputRef.current?.trim() ? maskValue(blockstreamClientIdInputRef.current, 4, 4) : 'N/A'}.{' '}
               CryptoAPIs.io API (masked): {cryptoApisApiKeyInputRef.current?.trim() ? maskValue(cryptoApisApiKeyInputRef.current, 4, 4) : 'N/A'}.{' '}
               Mobula.io API (masked): {mobulaApiKeyInputRef.current?.trim() ? maskValue(mobulaApiKeyInputRef.current, 4, 4) : 'N/A'}.{' '}
+              Moralis API (masked): {moralisApiKeyInputRef.current?.trim() ? maskValue(moralisApiKeyInputRef.current, 4, 4) : 'N/A'}.{' '}
               Displaying up to {MAX_DISPLAYED_RESULTS} results with at least one non-zero balance from a real API (newest first).
               Showing BTC if available, otherwise first asset found; others indicated by (+X). Wallets with errors and no balance are not shown.
             </CardDescription>

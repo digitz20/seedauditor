@@ -16,7 +16,8 @@ import {
   fetchBlockcypherBalances,
   fetchAlchemyBalances,
   fetchBlockstreamBalance,
-  fetchCryptoApisBalances, // Added import
+  fetchCryptoApisBalances,
+  fetchMobulaBalances, // Added import
   type AddressBalanceResult,
 } from '@/app/actions';
 
@@ -49,7 +50,8 @@ const GenerateAndCheckSeedPhrasesInputSchema = z.object({
   alchemyApiKey: z.string().optional().describe('Optional Alchemy API key.'),
   blockstreamClientId: z.string().optional().describe('Optional Blockstream Client ID.'),
   blockstreamClientSecret: z.string().optional().describe('Optional Blockstream Client Secret.'),
-  cryptoApisApiKey: z.string().optional().describe('Optional CryptoAPIs.io API key.'), // Added
+  cryptoApisApiKey: z.string().optional().describe('Optional CryptoAPIs.io API key.'),
+  mobulaApiKey: z.string().optional().describe('Optional Mobula.io API key.'), // Added
 });
 export type GenerateAndCheckSeedPhrasesInput = z.infer<typeof GenerateAndCheckSeedPhrasesInputSchema>;
 
@@ -61,22 +63,22 @@ export type GenerateAndCheckSeedPhrasesOutput = z.infer<typeof GenerateAndCheckS
 // Helper function to generate a random seed phrase of varying lengths using CSPRNG for word count selection
 function generateRandomSeedPhraseInternal(): { phrase: string; wordCount: number } {
   const validWordCounts = [12, 15, 18, 21, 24];
-  const randomByteForWordCount = ethers.randomBytes(1)[0]; 
+  const randomByteForWordCount = ethers.randomBytes(1)[0];
   const randomWordCountIndex = randomByteForWordCount % validWordCounts.length;
   const wordCount = validWordCounts[randomWordCountIndex];
 
   let entropyBytesLength: number;
   switch (wordCount) {
-    case 12: entropyBytesLength = 16; break; 
-    case 15: entropyBytesLength = 20; break; 
-    case 18: entropyBytesLength = 24; break; 
-    case 21: entropyBytesLength = 28; break; 
-    case 24: entropyBytesLength = 32; break; 
-    default: 
+    case 12: entropyBytesLength = 16; break;
+    case 15: entropyBytesLength = 20; break;
+    case 18: entropyBytesLength = 24; break;
+    case 21: entropyBytesLength = 28; break;
+    case 24: entropyBytesLength = 32; break;
+    default:
       console.warn("Flow: Unexpected word count generated, defaulting to 12 words / 16 bytes entropy.");
-      entropyBytesLength = 16; 
+      entropyBytesLength = 16;
   }
-  const entropy = ethers.randomBytes(entropyBytesLength); 
+  const entropy = ethers.randomBytes(entropyBytesLength);
   const mnemonic = ethers.Mnemonic.fromEntropy(entropy);
   return { phrase: mnemonic.phrase, wordCount };
 }
@@ -89,7 +91,7 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
     outputSchema: GenerateAndCheckSeedPhrasesOutputSchema,
   },
   async (input): Promise<GenerateAndCheckSeedPhrasesOutput> => {
-    
+
     const processSinglePhrase = async (): Promise<SingleSeedPhraseResult | null> => {
       const { phrase, wordCount } = generateRandomSeedPhraseInternal();
       let derivedAddress: string | null = null;
@@ -113,7 +115,7 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
         };
       }
 
-      if (!derivedAddress) { 
+      if (!derivedAddress) {
         derivationError = "Address derivation unexpectedly resulted in null without an error.";
         console.log(`Flow: Derivation issue for seed phrase "${phrase.substring(0,20)}...": ${derivationError}`);
         return {
@@ -126,7 +128,7 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
             derivationError: derivationError,
         };
       }
-      
+
       const apiCallPromises: Promise<AddressBalanceResult[]>[] = [];
 
       if (input.etherscanApiKey) {
@@ -143,8 +145,11 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
       } else if (input.blockstreamClientId || input.blockstreamClientSecret) {
         console.warn(`Flow: Blockstream API not called for address ${derivedAddress} as both Client ID and Secret are required.`);
       }
-      if (input.cryptoApisApiKey) { // Added
+      if (input.cryptoApisApiKey) {
         apiCallPromises.push(fetchCryptoApisBalances(derivedAddress, input.cryptoApisApiKey));
+      }
+      if (input.mobulaApiKey) { // Added
+        apiCallPromises.push(fetchMobulaBalances(derivedAddress, input.mobulaApiKey));
       }
 
 
@@ -163,7 +168,7 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
           hasApiError = true;
         }
       });
-      
+
       const positiveRealFlowBalances: FlowBalanceResult[] = collectedApiBalances
         .filter(b => b.isRealData && b.balance > 0 && b.dataSource !== 'Error' && b.dataSource !== 'N/A')
         .map(b => ({
@@ -184,11 +189,11 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
           derivationError: undefined,
         };
       }
-      
+
       if (!derivationError) {
            console.log(`Flow: No positive balances found for seed phrase "${phrase.substring(0,20)}..." (Address: ${derivedAddress}). API errors: ${hasApiError}. Skipping from results.`);
       }
-      return null; 
+      return null;
     };
 
     const phraseProcessingPromises: Promise<SingleSeedPhraseResult | null>[] = [];
@@ -201,7 +206,7 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
       const validResults = allSettledResults.filter(
           result => result !== null && !result.derivationError && result.balances.length > 0
         ) as SingleSeedPhraseResult[];
-      
+
       return validResults.length > 0 ? validResults : [];
     } catch (flowInternalError: any) {
       console.error("CRITICAL INTERNAL ERROR in generateAndCheckSeedPhrasesFlow's parallel execution:", flowInternalError.message, flowInternalError.stack);
@@ -216,11 +221,9 @@ export async function generateAndCheckSeedPhrases(
 ): Promise<GenerateAndCheckSeedPhrasesOutput> {
   try {
     const results = await generateAndCheckSeedPhrasesFlow(input);
-    return results ?? []; 
+    return results ?? [];
   } catch (flowError: any) {
     console.error("CRITICAL ERROR in generateAndCheckSeedPhrasesFlow invocation wrapper:", flowError.message, flowError.stack);
-    return []; 
+    return [];
   }
 }
-
-    

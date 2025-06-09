@@ -59,6 +59,7 @@ export default function Home() {
   const [blockstreamClientIdInput, setBlockstreamClientIdInput] = useState<string>(process.env.NEXT_PUBLIC_BLOCKSTREAM_CLIENT_ID || '6b33450a-92f8-40a9-81a8-6e77acd2dfc9');
   const [blockstreamClientSecretInput, setBlockstreamClientSecretInput] = useState<string>(process.env.NEXT_PUBLIC_BLOCKSTREAM_CLIENT_SECRET || 'Czvm15Usa29MlYcnJRPK7ZeLNUm1x7kP');
   const [cryptoApisApiKeyInput, setCryptoApisApiKeyInput] = useState<string>('1e50a99cde21ebd081ebcc046da521524a5e4e8e');
+  const [mobulaApiKeyInput, setMobulaApiKeyInput] = useState<string>('93a9e533-c035-45ff-9802-516568e2f16a');
 
 
   const [showEtherscanKey, setShowEtherscanKey] = useState(false);
@@ -67,11 +68,12 @@ export default function Home() {
   const [showBlockstreamClientId, setShowBlockstreamClientId] = useState(false);
   const [showBlockstreamClientSecret, setShowBlockstreamClientSecret] = useState(false);
   const [showCryptoApisApiKey, setShowCryptoApisApiKey] = useState(false);
+  const [showMobulaApiKey, setShowMobulaApiKey] = useState(false);
 
 
   const [results, setResults] = useState<ResultRow[]>([]);
   const [isProcessingManual, setIsProcessingManual] = useState<boolean>(false);
-  const [numSeedPhrasesToGenerate, setNumSeedPhrasesToGenerate] = useState<number>(100); 
+  const [numSeedPhrasesToGenerate, setNumSeedPhrasesToGenerate] = useState<number>(100);
 
   const { toast } = useToast();
 
@@ -94,6 +96,7 @@ export default function Home() {
   const blockstreamClientIdInputRef = useRef(blockstreamClientIdInput);
   const blockstreamClientSecretInputRef = useRef(blockstreamClientSecretInput);
   const cryptoApisApiKeyInputRef = useRef(cryptoApisApiKeyInput);
+  const mobulaApiKeyInputRef = useRef(mobulaApiKeyInput);
   const checkedPhrasesCountRef = useRef(checkedPhrasesCount);
 
 
@@ -112,6 +115,7 @@ export default function Home() {
   useEffect(() => { blockstreamClientIdInputRef.current = blockstreamClientIdInput; }, [blockstreamClientIdInput]);
   useEffect(() => { blockstreamClientSecretInputRef.current = blockstreamClientSecretInput; }, [blockstreamClientSecretInput]);
   useEffect(() => { cryptoApisApiKeyInputRef.current = cryptoApisApiKeyInput; }, [cryptoApisApiKeyInput]);
+  useEffect(() => { mobulaApiKeyInputRef.current = mobulaApiKeyInput; }, [mobulaApiKeyInput]);
 
 
   useEffect(() => {
@@ -229,8 +233,9 @@ export default function Home() {
     const hasAlchemyKey = alchemyApiKeyInputRef.current.trim();
     const hasBlockstreamCreds = blockstreamClientIdInputRef.current.trim() && blockstreamClientSecretInputRef.current.trim();
     const hasCryptoApis = cryptoApisApiKeyInputRef.current.trim();
+    const hasMobula = mobulaApiKeyInputRef.current.trim();
 
-    if (!hasEtherscanKey && !hasBlockcypherKey && !hasAlchemyKey && !hasBlockstreamCreds && !hasCryptoApis) {
+    if (!hasEtherscanKey && !hasBlockcypherKey && !hasAlchemyKey && !hasBlockstreamCreds && !hasCryptoApis && !hasMobula) {
       toast({
         title: 'API Key/Credentials Recommended for Real Balances',
         description: 'Provide at least one set of API credentials. Manual checks without them will not find any real balances.',
@@ -274,7 +279,8 @@ export default function Home() {
         alchemyApiKeyInputRef.current || undefined,
         blockstreamClientIdInputRef.current || undefined,
         blockstreamClientSecretInputRef.current || undefined,
-        cryptoApisApiKeyInputRef.current || undefined
+        cryptoApisApiKeyInputRef.current || undefined,
+        mobulaApiKeyInputRef.current || undefined
       );
 
       const finalResults = processAndSetDisplayBalances(processedDataFromAction, false);
@@ -287,7 +293,7 @@ export default function Home() {
       let toastMessage = `Finished processing ${validPhrases.length} valid seed phrase(s). `;
       toastMessage += `Found ${displayableResults.length} wallet(s) with at least one non-zero balance.`;
 
-      if (!hasEtherscanKey && !hasBlockcypherKey && !hasAlchemyKey && !hasBlockstreamCreds && !hasCryptoApis && validPhrases.length > 0) {
+      if (!hasEtherscanKey && !hasBlockcypherKey && !hasAlchemyKey && !hasBlockstreamCreds && !hasCryptoApis && !hasMobula && validPhrases.length > 0) {
         toastMessage += ' No API keys/credentials were provided, so no real balances could be fetched.';
       }
 
@@ -310,7 +316,7 @@ export default function Home() {
   };
 
   const handleManualGenerateAndCheck = async () => {
-    if (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current && (!blockstreamClientIdInputRef.current || !blockstreamClientSecretInputRef.current) && !cryptoApisApiKeyInputRef.current) {
+    if (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current && (!blockstreamClientIdInputRef.current || !blockstreamClientSecretInputRef.current) && !cryptoApisApiKeyInputRef.current && !mobulaApiKeyInputRef.current) {
       toast({
         title: 'API Key(s)/Credentials Required',
         description: 'Please provide at least one set of API credentials for the generator to fetch real balances.',
@@ -329,6 +335,7 @@ export default function Home() {
         blockstreamClientId: blockstreamClientIdInputRef.current || undefined,
         blockstreamClientSecret: blockstreamClientSecretInputRef.current || undefined,
         cryptoApisApiKey: cryptoApisApiKeyInputRef.current || undefined,
+        mobulaApiKey: mobulaApiKeyInputRef.current || undefined,
       };
 
       const generatedDataFromFlow: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
@@ -436,14 +443,15 @@ export default function Home() {
 
     setCurrentGenerationStatus('Running');
     const metaBatchSize = numSeedPhrasesToGenerateRef.current > 0 ? numSeedPhrasesToGenerateRef.current : 1;
-    setPhrasesInBatchDisplay(metaBatchSize); 
+    setPhrasesInBatchDisplay(metaBatchSize);
 
     const apiKeysDirectlyAvailableForStep =
         etherscanApiKeyInputRef.current?.trim() ||
         blockcypherApiKeyInputRef.current?.trim() ||
         alchemyApiKeyInputRef.current?.trim() ||
         (blockstreamClientIdInputRef.current?.trim() && blockstreamClientSecretInputRef.current?.trim()) ||
-        cryptoApisApiKeyInputRef.current?.trim();
+        cryptoApisApiKeyInputRef.current?.trim() ||
+        mobulaApiKeyInputRef.current?.trim();
 
 
     if (!apiKeysDirectlyAvailableForStep) {
@@ -468,6 +476,7 @@ export default function Home() {
         blockstreamClientId: blockstreamClientIdInputRef.current || undefined,
         blockstreamClientSecret: blockstreamClientSecretInputRef.current || undefined,
         cryptoApisApiKey: cryptoApisApiKeyInputRef.current || undefined,
+        mobulaApiKey: mobulaApiKeyInputRef.current || undefined,
       };
 
       const generatedDataFromFlow: GenerateAndCheckSeedPhrasesOutput = await generateAndCheckSeedPhrases(input);
@@ -515,7 +524,7 @@ export default function Home() {
     }
 
     if (isAutoGeneratingRef.current && !isAutoGenerationPausedRef.current) {
-      const delay = 1500; 
+      const delay = 1500;
       timeoutRef.current = setTimeout(runAutoGenerationStep, delay);
     } else {
        setCurrentGenerationStatus(isAutoGenerationPausedRef.current ? 'Paused' : 'Stopped');
@@ -539,7 +548,8 @@ export default function Home() {
         blockcypherApiKeyInputRef.current?.trim() ||
         alchemyApiKeyInputRef.current?.trim() ||
         (blockstreamClientIdInputRef.current?.trim() && blockstreamClientSecretInputRef.current?.trim()) ||
-        cryptoApisApiKeyInputRef.current?.trim();
+        cryptoApisApiKeyInputRef.current?.trim() ||
+        mobulaApiKeyInputRef.current?.trim();
 
     if (!apiKeysDirectlyAvailableForStart) {
       addLogMessage('Auto-generation cannot start/resume: API credentials required.');
@@ -549,14 +559,14 @@ export default function Home() {
         variant: 'destructive',
       });
       if (isResumingFromRefresh) {
-          stopAutoGenerating(true); 
+          stopAutoGenerating(true);
       }
       return;
     }
 
     addLogMessage(isResumingFromRefresh ? 'Resuming auto-generation session...' : (wasPaused ? 'Resuming automatic generation...' : 'Starting automatic generation...'));
-    
-    setPhrasesInBatchDisplay(currentBatchSizeSetting); 
+
+    setPhrasesInBatchDisplay(currentBatchSizeSetting);
 
     setIsAutoGenerating(true);
     isAutoGeneratingRef.current = true;
@@ -570,19 +580,20 @@ export default function Home() {
 
 
   useEffect(() => {
-    let batchSizeForDisplayLogic = 100; 
+    let batchSizeForDisplayLogic = 100;
     const storedBatchSizeStr = localStorage.getItem(LOCAL_STORAGE_AUTO_GEN_BATCH_SIZE_KEY);
     if (storedBatchSizeStr) {
         const storedBatchSize = parseInt(storedBatchSizeStr, 10);
         if (!isNaN(storedBatchSize) && storedBatchSize >= 1 && storedBatchSize <= 100) {
-            setNumSeedPhrasesToGenerate(storedBatchSize); 
-            batchSizeForDisplayLogic = storedBatchSize;   
+            setNumSeedPhrasesToGenerate(storedBatchSize);
+            batchSizeForDisplayLogic = storedBatchSize;
             console.log(`Loaded batch size from storage: ${storedBatchSize}`);
         } else {
-            setNumSeedPhrasesToGenerate(100);
+            setNumSeedPhrasesToGenerate(100); // Default to 100 if stored is invalid
             console.log(`Invalid batch size in storage, defaulting to ${batchSizeForDisplayLogic}.`);
         }
     } else {
+        setNumSeedPhrasesToGenerate(100); // Default to 100 if nothing in storage
         console.log(`No batch size in storage, using default: ${batchSizeForDisplayLogic}.`);
     }
 
@@ -607,7 +618,8 @@ export default function Home() {
       blockcypherApiKeyInputRef.current?.trim() ||
       alchemyApiKeyInputRef.current?.trim() ||
       (blockstreamClientIdInputRef.current?.trim() && blockstreamClientSecretInputRef.current?.trim()) ||
-      cryptoApisApiKeyInputRef.current?.trim();
+      cryptoApisApiKeyInputRef.current?.trim() ||
+      mobulaApiKeyInputRef.current?.trim();
 
     let attemptResume = false;
     let initialStatus: GenerationStatus = 'Stopped';
@@ -624,7 +636,7 @@ export default function Home() {
     } else if (storedStatus === 'Paused' || (storedStatus === 'Running' && storedPausedStr === 'true')) {
         initialStatus = 'Paused';
         initialPaused = true;
-        setIsAutoGenerating(true); 
+        setIsAutoGenerating(true);
         isAutoGeneratingRef.current = true;
         console.log('Previous state was Paused. User can resume or stop.');
         setPhrasesInBatchDisplay(batchSizeForDisplayLogic > 0 ? batchSizeForDisplayLogic : 1);
@@ -640,16 +652,16 @@ export default function Home() {
     setCurrentGenerationStatus(initialStatus);
     setIsAutoGenerationPaused(initialPaused);
     isAutoGenerationPausedRef.current = initialPaused;
-    
+
     if (attemptResume) {
-        const resumeTimeout = setTimeout(() => { 
+        const resumeTimeout = setTimeout(() => {
             if (apiKeysAvailableOnMount) {
                 startAutoGenerating(true);
             } else {
                 console.log('Auto-generation was running, but API keys are now missing. Stopping and clearing persistence.');
                 stopAutoGenerating(true);
             }
-        }, 100); 
+        }, 100);
         return () => clearTimeout(resumeTimeout);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -712,6 +724,8 @@ export default function Home() {
         return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-orange-100 text-orange-800 dark:bg-orange-800/30 dark:text-orange-300">Blockstream</span>;
       case 'CryptoAPIs.io API':
         return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-cyan-100 text-cyan-800 dark:bg-cyan-800/30 dark:text-cyan-300">CryptoAPIs</span>;
+      case 'Mobula.io API':
+        return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-pink-100 text-pink-800 dark:bg-pink-800/30 dark:text-pink-300">Mobula.io</span>;
       case 'Simulated Fallback':
          return <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-800/30 dark:text-amber-300">Simulated</span>;
       case 'N/A':
@@ -729,6 +743,7 @@ export default function Home() {
     if (alchemyApiKeyInputRef.current?.trim()) keys.push('Alchemy');
     if (blockstreamClientIdInputRef.current?.trim() && blockstreamClientSecretInputRef.current?.trim()) keys.push('Blockstream');
     if (cryptoApisApiKeyInputRef.current?.trim()) keys.push('CryptoAPIs');
+    if (mobulaApiKeyInputRef.current?.trim()) keys.push('Mobula.io');
 
     if (keys.length === 0) return ' (No API Credentials - Manual Check Ineffective)';
     if (keys.length === 1) return ` (Use ${keys[0]} API)`;
@@ -762,11 +777,12 @@ export default function Home() {
                     <li><strong>Etherscan:</strong> For Ethereum (ETH) mainnet.</li>
                     <li><strong>BlockCypher:</strong> For ETH, BTC, LTC, DOGE, DASH (using the derived EVM address for all queries).</li>
                     <li><strong>Alchemy:</strong> For various EVM-compatible chains like Ethereum, Polygon, Arbitrum, Optimism, Base.</li>
-                    <li><strong>Blockstream:</strong> For Bitcoin (BTC) mainnet. Public API, Client ID/Secret may not be strictly required by public endpoints used for balance checks but are passed if provided.</li>
+                    <li><strong>Blockstream:</strong> For Bitcoin (BTC) mainnet.</li>
                     <li><strong>CryptoAPIs.io:</strong> For BTC, ETH, LTC, DOGE, DASH and other chains supported by their API.</li>
+                    <li><strong>Mobula.io:</strong> For portfolio tracking across various chains. (Placeholder implementation for API call)</li>
                 </ul>
             </li>
-            <li>Addresses derived are EVM-compatible. Querying non-EVM chains (e.g., BTC via BlockCypher/Blockstream/CryptoAPIs.io) with an EVM address may not yield expected results for those specific non-EVM assets but is attempted. For accurate BTC balances from a seed phrase, a Bitcoin-specific derivation path (e.g., BIP44, BIP49, BIP84) and address generation is required, which is beyond the current scope for the seed phrase input method.</li>
+            <li>Addresses derived are EVM-compatible. Querying non-EVM chains (e.g., BTC via BlockCypher/Blockstream/CryptoAPIs.io/Mobula.io) with an EVM address may not yield expected results for those specific non-EVM assets but is attempted. For accurate BTC balances from a seed phrase, a Bitcoin-specific derivation path (e.g., BIP44, BIP49, BIP84) and address generation is required, which is beyond the current scope for the seed phrase input method.</li>
             <li>If API keys/credentials are missing, invalid, rate-limited, or calls fail, results may show 0 balance or &quot;N/A&quot; datasource. Manual checks without keys are ineffective for real balances.</li>
             <li>The automatic generator REQUIRES at least one set of API credentials to function and find real balances.</li>
             <li><strong>Exposing real seed phrases can lead to PERMANENT LOSS OF FUNDS. Pre-filled API keys/credentials are for demonstration and may be rate-limited or revoked. Use your own for reliable use.</strong></li>
@@ -993,6 +1009,38 @@ export default function Home() {
                   </AlertDescription>
                 </Alert>
             </div>
+             {/* Mobula.io */}
+             <div className="space-y-1">
+                <div className="relative">
+                  <Input
+                    type={showMobulaApiKey ? "text" : "password"}
+                    placeholder="Mobula.io API Key"
+                    value={mobulaApiKeyInput}
+                    onChange={(e) => setMobulaApiKeyInput(e.target.value)}
+                    className="text-sm border-input focus:ring-accent focus:border-accent font-mono pr-10"
+                    disabled={isProcessingManual || isAutoGenerating}
+                    aria-label="Mobula.io API Key Input"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-muted-foreground hover:text-primary"
+                    onClick={() => setShowMobulaApiKey(!showMobulaApiKey)}
+                    disabled={isProcessingManual || isAutoGenerating}
+                    aria-label={showMobulaApiKey ? "Hide Mobula.io API Key" : "Show Mobula.io API Key"}
+                  >
+                    {showMobulaApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
+                <Alert variant="info" className="text-xs">
+                  <DatabaseZap className="h-4 w-4" />
+                  <AlertTitle className="font-semibold">Mobula.io API</AlertTitle>
+                  <AlertDescription>
+                    For multi-chain portfolio balances. (Placeholder API call logic)
+                  </AlertDescription>
+                </Alert>
+            </div>
           </div>
         </CardContent>
         <CardFooter className="flex flex-col sm:flex-row gap-2 pt-4 border-t">
@@ -1051,7 +1099,7 @@ export default function Home() {
         <CardFooter className="flex flex-col sm:flex-row gap-2 pt-4 border-t">
           <Button
             onClick={handleManualGenerateAndCheck}
-            disabled={isProcessingManual || isAutoGenerating || (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current && (!blockstreamClientIdInputRef.current || !blockstreamClientSecretInputRef.current) && !cryptoApisApiKeyInputRef.current)}
+            disabled={isProcessingManual || isAutoGenerating || (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current && (!blockstreamClientIdInputRef.current || !blockstreamClientSecretInputRef.current) && !cryptoApisApiKeyInputRef.current && !mobulaApiKeyInputRef.current)}
             className="w-full sm:w-auto bg-accent hover:bg-accent/90 text-accent-foreground"
             aria-label="Manual Generate and Check Seed Phrases Button"
           >
@@ -1109,7 +1157,7 @@ export default function Home() {
             {!isAutoGenerating || isAutoGenerationPaused ? (
               <Button
                 onClick={() => startAutoGenerating(false)}
-                disabled={isProcessingManual || (isAutoGenerating && !isAutoGenerationPaused) || (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current && (!blockstreamClientIdInputRef.current || !blockstreamClientSecretInputRef.current) && !cryptoApisApiKeyInputRef.current)}
+                disabled={isProcessingManual || (isAutoGenerating && !isAutoGenerationPaused) || (!etherscanApiKeyInputRef.current && !blockcypherApiKeyInputRef.current && !alchemyApiKeyInputRef.current && (!blockstreamClientIdInputRef.current || !blockstreamClientSecretInputRef.current) && !cryptoApisApiKeyInputRef.current && !mobulaApiKeyInputRef.current)}
                 className="bg-green-600 hover:bg-green-700 text-white w-28"
                 aria-label={isAutoGenerationPaused ? "Resume Generating" : "Start Generating"}
               >
@@ -1163,6 +1211,7 @@ export default function Home() {
               Alchemy API (masked): {alchemyApiKeyInputRef.current?.trim() ? maskValue(alchemyApiKeyInputRef.current, 4, 4) : 'N/A'}.{' '}
               Blockstream Client ID (masked): {blockstreamClientIdInputRef.current?.trim() ? maskValue(blockstreamClientIdInputRef.current, 4, 4) : 'N/A'}.{' '}
               CryptoAPIs.io API (masked): {cryptoApisApiKeyInputRef.current?.trim() ? maskValue(cryptoApisApiKeyInputRef.current, 4, 4) : 'N/A'}.{' '}
+              Mobula.io API (masked): {mobulaApiKeyInputRef.current?.trim() ? maskValue(mobulaApiKeyInputRef.current, 4, 4) : 'N/A'}.{' '}
               Displaying up to {MAX_DISPLAYED_RESULTS} results with at least one non-zero balance from a real API (newest first).
               Showing BTC if available, otherwise first asset found; others indicated by (+X). Wallets with errors and no balance are not shown.
             </CardDescription>
@@ -1296,4 +1345,3 @@ export default function Home() {
     </div>
   );
 }
-

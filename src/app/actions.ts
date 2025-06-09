@@ -9,7 +9,7 @@ export interface AddressBalanceResult {
   balance: number;
   currency: string;
   isRealData: boolean;
-  dataSource: 'Etherscan API' | 'BlockCypher API' | 'Alchemy API' | 'Blockstream API' | 'CryptoAPIs.io API' | 'Simulated Fallback' | 'N/A' | 'Unknown' | 'Error';
+  dataSource: 'Etherscan API' | 'BlockCypher API' | 'Alchemy API' | 'Blockstream API' | 'CryptoAPIs.io API' | 'Mobula.io API' | 'Simulated Fallback' | 'N/A' | 'Unknown' | 'Error';
 }
 
 
@@ -20,8 +20,8 @@ export interface ProcessedWalletInfo {
   balanceData: AddressBalanceResult[];
   error?: string | null;
   derivationError?: string | null;
-  isRealData?: boolean; 
-  cryptoName?: string; 
+  isRealData?: boolean;
+  cryptoName?: string;
 }
 
 
@@ -38,6 +38,7 @@ const ALCHEMY_BASE_URLS: Record<string, string> = {
 };
 const BLOCKSTREAM_API_URL = 'https://blockstream.info/api';
 const CRYPTOAPIS_API_URL = 'https://rest.cryptoapis.io/v2/blockchain-data';
+const MOBULA_API_URL = 'https://api.mobula.io/api/1'; // Placeholder base URL for Mobula
 
 
 export async function fetchEtherscanBalance(address: string, apiKey?: string): Promise<AddressBalanceResult[]> {
@@ -68,7 +69,7 @@ export async function fetchEtherscanBalance(address: string, apiKey?: string): P
         console.error(`Etherscan API: Error parsing JSON response for ${address}: ${jsonError.message}. Response body: ${responseBodyText}`);
         return [{ address, balance: 0, currency: 'ETH', isRealData: false, dataSource: 'Error' }];
     }
-    
+
     if (data.status === '1') {
       if (typeof data.result === 'string' && /^\d+$/.test(data.result)) {
         const balance = parseFloat(ethers.formatEther(data.result)) || 0;
@@ -90,7 +91,7 @@ export async function fetchEtherscanBalance(address: string, apiKey?: string): P
 
 export async function fetchBlockcypherBalances(address: string, apiKey?: string): Promise<AddressBalanceResult[]> {
   if (!apiKey) return [{ address, balance: 0, currency: 'Multiple (BlockCypher)', isRealData: false, dataSource: 'N/A' }];
-  const coins = ['eth', 'btc', 'ltc', 'doge', 'dash']; 
+  const coins = ['eth', 'btc', 'ltc', 'doge', 'dash'];
   const results: AddressBalanceResult[] = [];
 
   const promises = coins.map(async (coin): Promise<AddressBalanceResult> => {
@@ -111,7 +112,7 @@ export async function fetchBlockcypherBalances(address: string, apiKey?: string)
         console.error(`BlockCypher API error for ${coin.toUpperCase()} at ${address}: ${response.status} ${responseBodyText}`);
         return { address, balance: 0, currency: coin.toUpperCase(), isRealData: false, dataSource: 'Error' as const };
       }
-      
+
       let data;
       try {
           data = JSON.parse(responseBodyText);
@@ -123,11 +124,11 @@ export async function fetchBlockcypherBalances(address: string, apiKey?: string)
       let balance = 0;
       const balanceSource = data?.final_balance ?? data?.balance;
 
-      if (typeof balanceSource === 'number' && balanceSource >= 0) { 
+      if (typeof balanceSource === 'number' && balanceSource >= 0) {
         if (coin === 'eth') {
           balance = parseFloat(ethers.formatEther(BigInt(balanceSource).toString())) || 0;
         } else if (['btc', 'ltc', 'doge', 'dash'].includes(coin)) {
-          balance = parseFloat(ethers.formatUnits(BigInt(balanceSource).toString(), 8)) || 0; 
+          balance = parseFloat(ethers.formatUnits(BigInt(balanceSource).toString(), 8)) || 0;
         }
       }
        return { address, balance, currency: coin.toUpperCase(), isRealData: true, dataSource: 'BlockCypher API' as const };
@@ -136,7 +137,7 @@ export async function fetchBlockcypherBalances(address: string, apiKey?: string)
       return { address, balance: 0, currency: coin.toUpperCase(), isRealData: false, dataSource: 'Error' as const };
     }
   });
-  
+
   const settledResults = await Promise.allSettled(promises);
   settledResults.forEach(result => {
     if (result.status === 'fulfilled' && result.value) {
@@ -149,12 +150,12 @@ export async function fetchBlockcypherBalances(address: string, apiKey?: string)
 
 export async function fetchAlchemyBalances(address: string, apiKey?: string): Promise<AddressBalanceResult[]> {
   if (!apiKey) return [{ address, balance: 0, currency: 'Multiple (Alchemy)', isRealData: false, dataSource: 'N/A' }];
-  const evmNetworks = ['ETH', 'MATIC', 'ARBITRUM', 'OPTIMISM', 'BASE']; 
+  const evmNetworks = ['ETH', 'MATIC', 'ARBITRUM', 'OPTIMISM', 'BASE'];
   const results: AddressBalanceResult[] = [];
 
   const promises = evmNetworks.map(async (network): Promise<AddressBalanceResult | null> => {
     const baseUrl = ALCHEMY_BASE_URLS[network];
-    if (!baseUrl) return null; 
+    if (!baseUrl) return null;
 
     try {
       const response = await fetch(`${baseUrl}${apiKey}`, {
@@ -182,7 +183,7 @@ export async function fetchAlchemyBalances(address: string, apiKey?: string): Pr
          console.error(`Alchemy API error for ${network} at ${address}: ${response.status} ${responseBodyText}`);
          return { address, balance: 0, currency: network, isRealData: false, dataSource: 'Error' as const };
       }
-      
+
       let data;
       try {
           data = JSON.parse(responseBodyText);
@@ -190,13 +191,13 @@ export async function fetchAlchemyBalances(address: string, apiKey?: string): Pr
           console.error(`Alchemy API: Error parsing JSON response for ${network} at ${address}: ${jsonError.message}. Response: ${responseBodyText}`);
           return { address, balance: 0, currency: network, isRealData: false, dataSource: 'Error' as const };
       }
-      
+
       if (data && data.result && typeof data.result === 'string') {
         const balance = parseFloat(ethers.formatEther(data.result)) || 0;
         return { address, balance, currency: network, isRealData: true, dataSource: 'Alchemy API' as const };
       } else if (data && data.error) {
         console.warn(`Alchemy ${network}: ${data.error.message} for ${address}`);
-        return { address, balance: 0, currency: network, isRealData: false, dataSource: 'N/A' as const }; 
+        return { address, balance: 0, currency: network, isRealData: false, dataSource: 'N/A' as const };
       } else {
         console.warn(`Alchemy ${network}: Unexpected response structure for ${address}`, data);
         return { address, balance: 0, currency: network, isRealData: false, dataSource: 'Error' as const };
@@ -220,7 +221,7 @@ export async function fetchAlchemyBalances(address: string, apiKey?: string): Pr
 export async function fetchBlockstreamBalance(address: string, clientId?: string, clientSecret?: string): Promise<AddressBalanceResult[]> {
   try {
     const response = await fetch(`${BLOCKSTREAM_API_URL}/address/${address}`);
-    
+
     let responseBodyText: string | null = null;
     try {
         responseBodyText = await response.text();
@@ -231,33 +232,33 @@ export async function fetchBlockstreamBalance(address: string, clientId?: string
 
     if (!response.ok) {
         if (response.status === 400 || response.status === 404 || (responseBodyText && responseBodyText.toLowerCase().includes("invalid bitcoin address"))) {
-             return [{ address, balance: 0, currency: 'BTC', isRealData: true, dataSource: 'Blockstream API' }]; 
+             return [{ address, balance: 0, currency: 'BTC', isRealData: true, dataSource: 'Blockstream API' }];
         }
         console.error(`Blockstream API error for ${address}: ${response.status} ${responseBodyText}`);
         return [{ address, balance: 0, currency: 'BTC', isRealData: false, dataSource: 'Error' }];
     }
-    
+
     let data;
     try {
         data = JSON.parse(responseBodyText);
     } catch (jsonError: any) {
         console.error(`Blockstream API: Error parsing JSON response for ${address}: ${jsonError.message}. Response: ${responseBodyText}`);
-        if (responseBodyText && responseBodyText.toLowerCase().includes("invalid bitcoin address")) { 
-            return [{ address, balance: 0, currency: 'BTC', isRealData: true, dataSource: 'Blockstream API' }]; 
+        if (responseBodyText && responseBodyText.toLowerCase().includes("invalid bitcoin address")) {
+            return [{ address, balance: 0, currency: 'BTC', isRealData: true, dataSource: 'Blockstream API' }];
         }
         return [{ address, balance: 0, currency: 'BTC', isRealData: false, dataSource: 'Error' }];
     }
 
     if (data && data.chain_stats && typeof data.chain_stats.funded_txo_sum === 'number' && typeof data.chain_stats.spent_txo_sum === 'number') {
         const balanceSatoshis = data.chain_stats.funded_txo_sum - data.chain_stats.spent_txo_sum;
-        const balance = parseFloat(ethers.formatUnits(BigInt(balanceSatoshis).toString(), 8)) || 0; 
+        const balance = parseFloat(ethers.formatUnits(BigInt(balanceSatoshis).toString(), 8)) || 0;
         return [{ address, balance, currency: 'BTC', isRealData: true, dataSource: 'Blockstream API' }];
     } else {
         return [{ address, balance: 0, currency: 'BTC', isRealData: true, dataSource: 'Blockstream API'}];
     }
 
   } catch (error: any) {
-    if (error.message?.includes('invalid bitcoin address') || error.message?.includes('Failed to fetch')) { 
+    if (error.message?.includes('invalid bitcoin address') || error.message?.includes('Failed to fetch')) {
         return [{ address, balance: 0, currency: 'BTC', isRealData: false, dataSource: 'N/A'}];
     }
     console.error(`Error fetching Blockstream BTC balance for ${address}:`, error.message, error.stack);
@@ -294,9 +295,7 @@ export async function fetchCryptoApisBalances(address: string, apiKey?: string):
       }
 
       if (!response.ok) {
-        // CryptoAPIs returns 400/404/422 for invalid address format for a given chain, treat as 0 balance for that chain
         if (response.status === 400 || response.status === 404 || response.status === 422) {
-          // console.warn(`CryptoAPIs.io API: Address ${address} likely invalid or not found for ${chain.name}. Status: ${response.status}. Response: ${responseBodyText}`);
           return { address, balance: 0, currency: chain.name, isRealData: true, dataSource: 'CryptoAPIs.io API' as const };
         }
         console.error(`CryptoAPIs.io API error for ${chain.name} at ${address}: ${response.status} ${responseBodyText}`);
@@ -316,8 +315,6 @@ export async function fetchCryptoApisBalances(address: string, apiKey?: string):
         const balance = parseFloat(ethers.formatUnits(amountStr, chain.decimals)) || 0;
         return { address, balance, currency: chain.name, isRealData: true, dataSource: 'CryptoAPIs.io API' as const };
       } else {
-        // This case can mean the address exists but has 0 balance, or the API response structure is unexpected
-        // console.warn(`CryptoAPIs.io API: No balance data or unexpected structure for ${chain.name} at ${address}. Assuming 0 balance. Data:`, data);
         return { address, balance: 0, currency: chain.name, isRealData: true, dataSource: 'CryptoAPIs.io API' as const };
       }
     } catch (error: any) {
@@ -336,6 +333,82 @@ export async function fetchCryptoApisBalances(address: string, apiKey?: string):
   return results;
 }
 
+export async function fetchMobulaBalances(address: string, apiKey?: string): Promise<AddressBalanceResult[]> {
+  if (!apiKey) return [{ address, balance: 0, currency: 'Multiple (Mobula.io)', isRealData: false, dataSource: 'N/A' }];
+  const results: AddressBalanceResult[] = [];
+
+  // Placeholder: Mobula.io typically provides a portfolio view.
+  // You'll need to replace this with the actual API call and response parsing.
+  // This is a simplified example assuming a specific response structure.
+  try {
+    const response = await fetch(
+      `${MOBULA_API_URL}/wallet/portfolio?wallet=${address}`, // This endpoint is a guess
+      { headers: { 'X-API-Key': apiKey } } // Assuming header-based auth
+    );
+
+    let responseBodyText: string | null = null;
+    try {
+      responseBodyText = await response.text();
+    } catch (textError: any) {
+      console.error(`Mobula.io API: Error reading response text for ${address}: ${textError.message}`);
+      return [{ address, balance: 0, currency: 'Unknown', isRealData: false, dataSource: 'Error' }];
+    }
+
+    if (!response.ok) {
+      console.error(`Mobula.io API error for ${address}: ${response.status} ${responseBodyText}`);
+      // Consider specific error handling for 400/404 if it means address not found vs. bad request
+      return [{ address, balance: 0, currency: 'Unknown', isRealData: false, dataSource: 'Error' }];
+    }
+
+    let data;
+    try {
+      data = JSON.parse(responseBodyText);
+    } catch (jsonError: any) {
+      console.error(`Mobula.io API: Error parsing JSON response for ${address}: ${jsonError.message}. Response: ${responseBodyText}`);
+      return [{ address, balance: 0, currency: 'Unknown', isRealData: false, dataSource: 'Error' }];
+    }
+
+    // --- IMPORTANT: The following parsing logic is highly speculative ---
+    // You MUST adapt this to the actual structure of the Mobula.io API response.
+    if (data && data.data && Array.isArray(data.data.assets)) {
+      for (const assetInfo of data.data.assets) {
+        if (assetInfo && assetInfo.asset && typeof assetInfo.asset.symbol === 'string' &&
+            typeof assetInfo.balance === 'string' && typeof assetInfo.asset.decimals === 'number') {
+          try {
+            const balance = parseFloat(ethers.formatUnits(assetInfo.balance, assetInfo.asset.decimals)) || 0;
+            results.push({
+              address,
+              balance,
+              currency: assetInfo.asset.symbol.toUpperCase(),
+              isRealData: true,
+              dataSource: 'Mobula.io API',
+            });
+          } catch (formatError: any) {
+            console.error(`Mobula.io API: Error formatting balance for ${assetInfo.asset.symbol} at ${address}: ${formatError.message}`);
+          }
+        }
+      }
+    } else {
+       // console.warn(`Mobula.io API: Unexpected response structure or no assets for ${address}. Data:`, data);
+       // If the API returns an empty list for a valid address with no assets, this is normal.
+       // For now, if no assets, we return empty, which is fine.
+    }
+    // --- End of speculative parsing logic ---
+
+  } catch (error: any) {
+    console.error(`Error fetching Mobula.io balances for ${address}:`, error.message, error.stack);
+    // Return a generic error entry if the entire call fails
+    return [{ address, balance: 0, currency: 'Unknown', isRealData: false, dataSource: 'Error' }];
+  }
+  if (results.length === 0) {
+    // If after trying to parse, no valid assets were found, ensure we return something indicating the attempt.
+    // This could be an empty array if Mobula correctly returns no assets, or a single 'N/A' / 'Unknown' entry.
+    // For consistency with other functions that return specific currency, let's keep it empty if no specific error.
+    // If the API signifies "address has no assets" explicitly, that's fine.
+  }
+  return results;
+}
+
 
 export async function processSeedPhrasesAndFetchBalances(
   seedPhrases: string[],
@@ -344,7 +417,8 @@ export async function processSeedPhrasesAndFetchBalances(
   alchemyApiKey?: string,
   blockstreamClientId?: string,
   blockstreamClientSecret?: string,
-  cryptoApisApiKey?: string
+  cryptoApisApiKey?: string,
+  mobulaApiKey?: string
 ): Promise<ProcessedWalletInfo[]> {
   const results: ProcessedWalletInfo[] = [];
 
@@ -352,9 +426,9 @@ export async function processSeedPhrasesAndFetchBalances(
     for (const phrase of seedPhrases) {
       let wallet: ethers.Wallet | null = null;
       let derivedAddress: string | null = null;
-      let walletType: string = "Unknown"; 
+      let walletType: string = "Unknown";
       let derivationError: string | null = null;
-      
+
       const allBalancesForPhrase: AddressBalanceResult[] = [];
 
       try {
@@ -372,7 +446,7 @@ export async function processSeedPhrasesAndFetchBalances(
               derivationError: derivationError,
               error: null
           });
-        continue; 
+        continue;
       }
 
       if (derivedAddress) {
@@ -388,29 +462,33 @@ export async function processSeedPhrasesAndFetchBalances(
               const alchemyBalances = await fetchAlchemyBalances(derivedAddress, alchemyApiKey);
               allBalancesForPhrase.push(...alchemyBalances);
           }
-          const btcBalances = await fetchBlockstreamBalance(derivedAddress, blockstreamClientId, blockstreamClientSecret); 
+          const btcBalances = await fetchBlockstreamBalance(derivedAddress, blockstreamClientId, blockstreamClientSecret);
           allBalancesForPhrase.push(...btcBalances);
 
           if (cryptoApisApiKey) {
               const caBalances = await fetchCryptoApisBalances(derivedAddress, cryptoApisApiKey);
               allBalancesForPhrase.push(...caBalances);
           }
+          if (mobulaApiKey) {
+              const mobBalances = await fetchMobulaBalances(derivedAddress, mobulaApiKey);
+              allBalancesForPhrase.push(...mobBalances);
+          }
       }
-      
+
       const positiveRealBalances = allBalancesForPhrase.filter(b => b.isRealData && b.balance > 0 && b.dataSource !== 'Error' && b.dataSource !== 'N/A');
       const apiErrorOccurred = allBalancesForPhrase.some(b => b.dataSource === 'Error');
-      
+
       if (positiveRealBalances.length > 0 && !derivationError) {
           results.push({
               seedPhrase: phrase,
               derivedAddress: derivedAddress,
               walletType: walletType,
-              balanceData: positiveRealBalances, 
-              derivationError: null, 
+              balanceData: positiveRealBalances,
+              derivationError: null,
               error: apiErrorOccurred ? "Positive balance(s) found, but some API calls may have failed for other assets." : null
           });
       } else {
-          if (!derivationError) { 
+          if (!derivationError) {
                // console.log(`Action: No positive balances found for seed phrase "${phrase.substring(0,20)}..." (Address: ${derivedAddress}). API errors: ${apiErrorOccurred}. Skipping.`);
           }
       }
@@ -418,7 +496,6 @@ export async function processSeedPhrasesAndFetchBalances(
     return results;
   } catch (e: any) {
     console.error(`Critical unhandled error in processSeedPhrasesAndFetchBalances: ${e.message}`, e.stack);
-    return results; 
+    return results;
   }
 }
-

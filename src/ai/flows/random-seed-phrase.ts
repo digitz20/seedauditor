@@ -18,7 +18,8 @@ import {
   fetchBlockstreamBalance,
   fetchCryptoApisBalances,
   fetchMobulaBalances,
-  fetchMoralisBalances, // Added import
+  fetchMoralisBalances,
+  fetchBitqueryBalances, // Added import
   type AddressBalanceResult,
 } from '@/app/actions';
 
@@ -53,7 +54,8 @@ const GenerateAndCheckSeedPhrasesInputSchema = z.object({
   blockstreamClientSecret: z.string().optional().describe('Optional Blockstream Client Secret.'),
   cryptoApisApiKey: z.string().optional().describe('Optional CryptoAPIs.io API key.'),
   mobulaApiKey: z.string().optional().describe('Optional Mobula.io API key.'),
-  moralisApiKey: z.string().optional().describe('Optional Moralis API key.'), // Added
+  moralisApiKey: z.string().optional().describe('Optional Moralis API key.'),
+  bitqueryApiKey: z.string().optional().describe('Optional Bitquery.io API key.'), // Added
 });
 export type GenerateAndCheckSeedPhrasesInput = z.infer<typeof GenerateAndCheckSeedPhrasesInputSchema>;
 
@@ -153,8 +155,11 @@ const generateAndCheckSeedPhrasesFlow = ai.defineFlow(
       if (input.mobulaApiKey) {
         apiCallPromises.push(fetchMobulaBalances(derivedAddress, input.mobulaApiKey));
       }
-      if (input.moralisApiKey) { // Added
+      if (input.moralisApiKey) {
         apiCallPromises.push(fetchMoralisBalances(derivedAddress, input.moralisApiKey));
+      }
+      if (input.bitqueryApiKey) { // Added
+        apiCallPromises.push(fetchBitqueryBalances(derivedAddress, input.bitqueryApiKey));
       }
 
 

@@ -9,7 +9,7 @@ export interface AddressBalanceResult {
   balance: number;
   currency: string;
   isRealData: boolean;
-  dataSource: 'Etherscan API' | 'BlockCypher API' | 'Alchemy API' | 'Blockstream API' | 'CryptoAPIs.io API' | 'Mobula.io API' | 'Moralis API' | 'Simulated Fallback' | 'N/A' | 'Unknown' | 'Error';
+  dataSource: 'Etherscan API' | 'BlockCypher API' | 'Alchemy API' | 'Blockstream API' | 'CryptoAPIs.io API' | 'Mobula.io API' | 'Moralis API' | 'Bitquery API' | 'Simulated Fallback' | 'N/A' | 'Unknown' | 'Error';
 }
 
 
@@ -40,6 +40,7 @@ const BLOCKSTREAM_API_URL = 'https://blockstream.info/api';
 const CRYPTOAPIS_API_URL = 'https://rest.cryptoapis.io/v2/blockchain-data';
 const MOBULA_API_URL = 'https://api.mobula.io/api/1';
 const MORALIS_API_BASE_URL = 'https://deep-index.moralis.io/api/v2.2';
+const BITQUERY_API_URL = 'https://graphql.bitquery.io';
 
 
 export async function fetchEtherscanBalance(address: string, apiKey?: string): Promise<AddressBalanceResult[]> {
@@ -338,13 +339,10 @@ export async function fetchMobulaBalances(address: string, apiKey?: string): Pro
   if (!apiKey) return [{ address, balance: 0, currency: 'Multiple (Mobula.io)', isRealData: false, dataSource: 'N/A' }];
   const results: AddressBalanceResult[] = [];
 
-  // Placeholder: Mobula.io typically provides a portfolio view.
-  // You'll need to replace this with the actual API call and response parsing.
-  // This is a simplified example assuming a specific response structure.
   try {
     const response = await fetch(
-      `${MOBULA_API_URL}/wallet/portfolio?wallet=${address}`, // This endpoint is a guess
-      { headers: { 'authorization': apiKey } } // Common auth header for Mobula
+      `${MOBULA_API_URL}/wallet/portfolio?wallet=${address}`,
+      { headers: { 'authorization': apiKey } }
     );
 
     let responseBodyText: string | null = null;
@@ -371,13 +369,12 @@ export async function fetchMobulaBalances(address: string, apiKey?: string): Pro
     if (data && data.data && Array.isArray(data.data.assets)) {
       for (const assetInfo of data.data.assets) {
         if (assetInfo && assetInfo.asset && typeof assetInfo.asset.symbol === 'string' &&
-            typeof assetInfo.balance === 'number' && typeof assetInfo.asset.decimals === 'number') { // balance might be number
+            typeof assetInfo.balance === 'number' && typeof assetInfo.asset.decimals === 'number') {
           try {
-            // Mobula might provide balance in standard units, not wei. Adjust if needed.
             const balance = assetInfo.balance / (10 ** assetInfo.asset.decimals);
             results.push({
               address,
-              balance: parseFloat(balance.toFixed(8)) || 0, // Format to reasonable precision
+              balance: parseFloat(balance.toFixed(8)) || 0,
               currency: assetInfo.asset.symbol.toUpperCase(),
               isRealData: true,
               dataSource: 'Mobula.io API',
@@ -387,10 +384,7 @@ export async function fetchMobulaBalances(address: string, apiKey?: string): Pro
           }
         }
       }
-    } else {
-       // console.warn(`Mobula.io API: Unexpected response structure or no assets for ${address}. Data:`, data);
     }
-
   } catch (error: any) {
     console.error(`Error fetching Mobula.io balances for ${address}:`, error.message, error.stack);
     return [{ address, balance: 0, currency: 'Unknown', isRealData: false, dataSource: 'Error' }];
@@ -402,21 +396,18 @@ export async function fetchMobulaBalances(address: string, apiKey?: string): Pro
 export async function fetchMoralisBalances(address: string, apiKey?: string): Promise<AddressBalanceResult[]> {
   if (!apiKey) return [{ address, balance: 0, currency: 'Multiple (Moralis)', isRealData: false, dataSource: 'N/A' }];
   const results: AddressBalanceResult[] = [];
-  const chains = ['eth', 'polygon', 'bsc', 'avalanche', 'fantom', 'arbitrum', 'base', 'optimism']; // Common EVM chains
+  const chains = ['eth', 'polygon', 'bsc', 'avalanche', 'fantom', 'arbitrum', 'base', 'optimism'];
 
   const headers = {
     'accept': 'application/json',
     'X-API-Key': apiKey,
   };
 
-  // Fetch native balances
   const nativeBalancePromises = chains.map(async (chain): Promise<AddressBalanceResult | null> => {
     try {
       const response = await fetch(`${MORALIS_API_BASE_URL}/${address}/balance?chain=${chain}`, { headers });
       if (!response.ok) {
-        const errorText = await response.text();
-        // console.warn(`Moralis API (native ${chain}): ${response.status} for ${address}. ${errorText.substring(0, 100)}`);
-        return null; // Don't treat as an error if address not found on chain
+        return null;
       }
       const data = await response.json();
       if (data && data.balance && typeof data.balance === 'string') {
@@ -432,13 +423,10 @@ export async function fetchMoralisBalances(address: string, apiKey?: string): Pr
     }
   });
 
-  // Fetch ERC20 token balances
   const erc20BalancePromises = chains.map(async (chain): Promise<AddressBalanceResult[] | null> => {
     try {
       const response = await fetch(`${MORALIS_API_BASE_URL}/${address}/erc20?chain=${chain}`, { headers });
       if (!response.ok) {
-        const errorText = await response.text();
-        // console.warn(`Moralis API (ERC20 ${chain}): ${response.status} for ${address}. ${errorText.substring(0,100)}`);
         return null;
       }
       const data = await response.json();
@@ -451,7 +439,7 @@ export async function fetchMoralisBalances(address: string, apiKey?: string): Pr
               tokenBalances.push({
                 address,
                 balance,
-                currency: `${token.symbol.toUpperCase()} (${chain.toUpperCase()})`, // Add chain to symbol for clarity
+                currency: `${token.symbol.toUpperCase()} (${chain.toUpperCase()})`,
                 isRealData: true,
                 dataSource: 'Moralis API',
               });
@@ -462,7 +450,6 @@ export async function fetchMoralisBalances(address: string, apiKey?: string): Pr
       return tokenBalances;
     } catch (error: any) {
       console.error(`Error fetching Moralis ERC20 balances for ${chain} at ${address}:`, error.message);
-      // Return a single error entry for this chain's ERC20 check
       return [{ address, balance: 0, currency: `ERC20 (${chain.toUpperCase()})`, isRealData: false, dataSource: 'Error' }];
     }
   });
@@ -484,6 +471,118 @@ export async function fetchMoralisBalances(address: string, apiKey?: string): Pr
   return results.filter(r => r !== null) as AddressBalanceResult[];
 }
 
+export async function fetchBitqueryBalances(address: string, apiKey?: string): Promise<AddressBalanceResult[]> {
+  if (!apiKey) return [{ address, balance: 0, currency: 'Multiple (Bitquery)', isRealData: false, dataSource: 'N/A' }];
+  const results: AddressBalanceResult[] = [];
+
+  // GraphQL query - focused on ETH and BTC for EVM-derived addresses.
+  // Note: Using an EVM address for BTC queries on Bitquery might not be standard.
+  // Typically, you'd use a BTC-specific address format. This is a best-effort approach.
+  const query = `
+    query ($address: String!) {
+      ethereum {
+        address(address: {is: $address}) {
+          balance # Native ETH balance in ETH units
+          balances { # ERC20 tokens
+            currency {
+              symbol
+              address # Token contract address
+              decimals
+            }
+            value # Token balance in native token units (needs conversion)
+          }
+        }
+      }
+      bitcoin { # Attempting with the same (likely EVM) address
+        address(address: {is: $address}) {
+          balance # Native BTC balance in BTC units
+        }
+      }
+    }
+  `;
+
+  try {
+    const response = await fetch(BITQUERY_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-KEY': apiKey,
+      },
+      body: JSON.stringify({
+        query: query,
+        variables: { address: address },
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Bitquery API error for ${address}: ${response.status} ${errorText.substring(0, 200)}`);
+      return [{ address, balance: 0, currency: 'Unknown', isRealData: false, dataSource: 'Error' }];
+    }
+
+    const data = await response.json();
+
+    if (data.errors) {
+      console.warn(`Bitquery GraphQL errors for ${address}: ${JSON.stringify(data.errors).substring(0,200)}`);
+      // Don't necessarily return an error for the whole call if some parts succeed
+    }
+
+    // Process Ethereum native balance
+    if (data.data?.ethereum?.address?.[0]?.balance) {
+      const ethBalance = parseFloat(data.data.ethereum.address[0].balance);
+      if (ethBalance > 0) {
+        results.push({
+          address,
+          balance: ethBalance,
+          currency: 'ETH',
+          isRealData: true,
+          dataSource: 'Bitquery API',
+        });
+      }
+    }
+
+    // Process ERC20 token balances
+    if (data.data?.ethereum?.address?.[0]?.balances) {
+      data.data.ethereum.address[0].balances.forEach((token: any) => {
+        if (token.currency?.symbol && typeof token.value === 'number' && token.currency.decimals !== undefined) {
+          try {
+            const balance = token.value; // Bitquery might already provide it in standard units
+            if (balance > 0) {
+              results.push({
+                address,
+                balance,
+                currency: token.currency.symbol.toUpperCase(),
+                isRealData: true,
+                dataSource: 'Bitquery API',
+              });
+            }
+          } catch (e) {
+            console.error(`Bitquery API: Error processing ERC20 ${token.currency.symbol} for ${address}:`, e);
+          }
+        }
+      });
+    }
+
+    // Process Bitcoin native balance (if address was valid for BTC context in Bitquery)
+    if (data.data?.bitcoin?.address?.[0]?.balance) {
+      const btcBalance = parseFloat(data.data.bitcoin.address[0].balance);
+       if (btcBalance > 0) {
+        results.push({
+          address,
+          balance: btcBalance,
+          currency: 'BTC',
+          isRealData: true,
+          dataSource: 'Bitquery API',
+        });
+      }
+    }
+  } catch (error: any) {
+    console.error(`Error fetching Bitquery balances for ${address}:`, error.message, error.stack);
+    return [{ address, balance: 0, currency: 'Unknown (Bitquery)', isRealData: false, dataSource: 'Error' }];
+  }
+  return results;
+}
+
 
 export async function processSeedPhrasesAndFetchBalances(
   seedPhrases: string[],
@@ -494,7 +593,8 @@ export async function processSeedPhrasesAndFetchBalances(
   blockstreamClientSecret?: string,
   cryptoApisApiKey?: string,
   mobulaApiKey?: string,
-  moralisApiKey?: string
+  moralisApiKey?: string,
+  bitqueryApiKey?: string
 ): Promise<ProcessedWalletInfo[]> {
   const results: ProcessedWalletInfo[] = [];
 
@@ -552,6 +652,10 @@ export async function processSeedPhrasesAndFetchBalances(
           if (moralisApiKey) {
               const morBalances = await fetchMoralisBalances(derivedAddress, moralisApiKey);
               allBalancesForPhrase.push(...morBalances);
+          }
+          if (bitqueryApiKey) {
+              const bqBalances = await fetchBitqueryBalances(derivedAddress, bitqueryApiKey);
+              allBalancesForPhrase.push(...bqBalances);
           }
       }
 

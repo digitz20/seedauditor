@@ -1,3 +1,4 @@
+
 'use server';
 
 import { ethers } from 'ethers';
@@ -8,7 +9,7 @@ export interface AddressBalanceResult {
   balance: number;
   currency: string;
   isRealData: boolean;
-  dataSource: 'Etherscan API' | 'BlockCypher API' | 'Alchemy API' | 'Blockstream API' | 'Simulated Fallback' | 'N/A' | 'Unknown' | 'Error';
+  dataSource: 'Etherscan API' | 'BlockCypher API' | 'Alchemy API' | 'Blockstream API' | 'CryptoAPIs.io API' | 'Simulated Fallback' | 'N/A' | 'Unknown' | 'Error';
 }
 
 
@@ -36,6 +37,7 @@ const ALCHEMY_BASE_URLS: Record<string, string> = {
     'BASE': 'https://base-mainnet.g.alchemy.com/v2/',
 };
 const BLOCKSTREAM_API_URL = 'https://blockstream.info/api';
+const CRYPTOAPIS_API_URL = 'https://rest.cryptoapis.io/v2/blockchain-data';
 
 
 export async function fetchEtherscanBalance(address: string, apiKey?: string): Promise<AddressBalanceResult[]> {
@@ -140,7 +142,6 @@ export async function fetchBlockcypherBalances(address: string, apiKey?: string)
     if (result.status === 'fulfilled' && result.value) {
       results.push(result.value);
     }
-    // Rejected promises are handled by the catch block within the map function
   });
 
   return results;
@@ -211,15 +212,12 @@ export async function fetchAlchemyBalances(address: string, apiKey?: string): Pr
     if (result.status === 'fulfilled' && result.value) {
       results.push(result.value);
     }
-     // Rejected promises are handled by the catch block within the map function
   });
   return results;
 }
 
 
 export async function fetchBlockstreamBalance(address: string, clientId?: string, clientSecret?: string): Promise<AddressBalanceResult[]> {
-  // Blockstream API is public for address lookups, clientId/Secret are not typically used for this endpoint.
-  // They are kept in the signature for consistency but might not be actively used in the fetch call itself.
   try {
     const response = await fetch(`${BLOCKSTREAM_API_URL}/address/${address}`);
     
@@ -233,12 +231,8 @@ export async function fetchBlockstreamBalance(address: string, clientId?: string
 
     if (!response.ok) {
         if (response.status === 400 || response.status === 404 || (responseBodyText && responseBodyText.toLowerCase().includes("invalid bitcoin address"))) {
-             // This means the address is likely not a Bitcoin address or has no history.
-             // For the purpose of this tool, we can consider this a valid "checked" state with 0 balance.
-             // console.warn(`Blockstream: Address ${address} not found or invalid (likely non-BTC). Response: ${responseBodyText}`);
              return [{ address, balance: 0, currency: 'BTC', isRealData: true, dataSource: 'Blockstream API' }]; 
         }
-        // Other errors (e.g., 500, rate limits if they were to apply)
         console.error(`Blockstream API error for ${address}: ${response.status} ${responseBodyText}`);
         return [{ address, balance: 0, currency: 'BTC', isRealData: false, dataSource: 'Error' }];
     }
@@ -248,7 +242,6 @@ export async function fetchBlockstreamBalance(address: string, clientId?: string
         data = JSON.parse(responseBodyText);
     } catch (jsonError: any) {
         console.error(`Blockstream API: Error parsing JSON response for ${address}: ${jsonError.message}. Response: ${responseBodyText}`);
-        // If parsing fails but message indicates invalid address, treat as 0 balance.
         if (responseBodyText && responseBodyText.toLowerCase().includes("invalid bitcoin address")) { 
             return [{ address, balance: 0, currency: 'BTC', isRealData: true, dataSource: 'Blockstream API' }]; 
         }
@@ -260,23 +253,87 @@ export async function fetchBlockstreamBalance(address: string, clientId?: string
         const balance = parseFloat(ethers.formatUnits(BigInt(balanceSatoshis).toString(), 8)) || 0; 
         return [{ address, balance, currency: 'BTC', isRealData: true, dataSource: 'Blockstream API' }];
     } else {
-        // Address found but no transaction stats, means 0 balance.
-        // console.warn(`Blockstream: Address ${address} found but no transaction stats. Assuming zero balance. Data:`, data);
         return [{ address, balance: 0, currency: 'BTC', isRealData: true, dataSource: 'Blockstream API'}];
     }
 
   } catch (error: any) {
-    // Catch errors related to fetch itself or unexpected issues.
-    // If the error message clearly indicates it's due to an invalid address type for BTC,
-    // we can treat it as a 0 balance for BTC.
-    if (error.message?.includes('invalid bitcoin address') || error.message?.includes('Failed to fetch')) { // 'Failed to fetch' could be network or DNS for a bad address format
-        // console.warn(`Blockstream: Error likely due to non-BTC address ${address} or network issue: ${error.message}`);
-        // Still return as 'N/A' for isRealData false, as we couldn't confirm via API directly for BTC.
+    if (error.message?.includes('invalid bitcoin address') || error.message?.includes('Failed to fetch')) { 
         return [{ address, balance: 0, currency: 'BTC', isRealData: false, dataSource: 'N/A'}];
     }
     console.error(`Error fetching Blockstream BTC balance for ${address}:`, error.message, error.stack);
     return [{ address, balance: 0, currency: 'BTC', isRealData: false, dataSource: 'Error' }];
   }
+}
+
+export async function fetchCryptoApisBalances(address: string, apiKey?: string): Promise<AddressBalanceResult[]> {
+  if (!apiKey) return [{ address, balance: 0, currency: 'Multiple (CryptoAPIs)', isRealData: false, dataSource: 'N/A' }];
+
+  const chainsToQuery = [
+    { name: 'BTC', blockchain: 'bitcoin', network: 'mainnet', decimals: 8 },
+    { name: 'ETH', blockchain: 'ethereum', network: 'mainnet', decimals: 18 },
+    { name: 'LTC', blockchain: 'litecoin', network: 'mainnet', decimals: 8 },
+    { name: 'DOGE', blockchain: 'dogecoin', network: 'mainnet', decimals: 8 },
+    { name: 'DASH', blockchain: 'dash', network: 'mainnet', decimals: 8 },
+  ];
+
+  const results: AddressBalanceResult[] = [];
+
+  const promises = chainsToQuery.map(async (chain): Promise<AddressBalanceResult | null> => {
+    try {
+      const response = await fetch(
+        `${CRYPTOAPIS_API_URL}/${chain.blockchain}/${chain.network}/addresses/${address}`,
+        { headers: { 'X-API-Key': apiKey } }
+      );
+
+      let responseBodyText: string | null = null;
+      try {
+        responseBodyText = await response.text();
+      } catch (textError: any) {
+        console.error(`CryptoAPIs.io API: Error reading response text for ${chain.name} at ${address}: ${textError.message}`);
+        return { address, balance: 0, currency: chain.name, isRealData: false, dataSource: 'Error' as const };
+      }
+
+      if (!response.ok) {
+        // CryptoAPIs returns 400/404/422 for invalid address format for a given chain, treat as 0 balance for that chain
+        if (response.status === 400 || response.status === 404 || response.status === 422) {
+          // console.warn(`CryptoAPIs.io API: Address ${address} likely invalid or not found for ${chain.name}. Status: ${response.status}. Response: ${responseBodyText}`);
+          return { address, balance: 0, currency: chain.name, isRealData: true, dataSource: 'CryptoAPIs.io API' as const };
+        }
+        console.error(`CryptoAPIs.io API error for ${chain.name} at ${address}: ${response.status} ${responseBodyText}`);
+        return { address, balance: 0, currency: chain.name, isRealData: false, dataSource: 'Error' as const };
+      }
+
+      let data;
+      try {
+        data = JSON.parse(responseBodyText);
+      } catch (jsonError: any) {
+        console.error(`CryptoAPIs.io API: Error parsing JSON response for ${chain.name} at ${address}: ${jsonError.message}. Response: ${responseBodyText}`);
+        return { address, balance: 0, currency: chain.name, isRealData: false, dataSource: 'Error' as const };
+      }
+
+      if (data && data.data && data.data.item && data.data.item.confirmedBalance && typeof data.data.item.confirmedBalance.amount === 'string') {
+        const amountStr = data.data.item.confirmedBalance.amount;
+        const balance = parseFloat(ethers.formatUnits(amountStr, chain.decimals)) || 0;
+        return { address, balance, currency: chain.name, isRealData: true, dataSource: 'CryptoAPIs.io API' as const };
+      } else {
+        // This case can mean the address exists but has 0 balance, or the API response structure is unexpected
+        // console.warn(`CryptoAPIs.io API: No balance data or unexpected structure for ${chain.name} at ${address}. Assuming 0 balance. Data:`, data);
+        return { address, balance: 0, currency: chain.name, isRealData: true, dataSource: 'CryptoAPIs.io API' as const };
+      }
+    } catch (error: any) {
+      console.error(`Error fetching CryptoAPIs.io ${chain.name} balance for ${address}:`, error.message, error.stack);
+      return { address, balance: 0, currency: chain.name, isRealData: false, dataSource: 'Error' as const };
+    }
+  });
+
+  const settledResults = await Promise.allSettled(promises);
+  settledResults.forEach(result => {
+    if (result.status === 'fulfilled' && result.value) {
+      results.push(result.value);
+    }
+  });
+
+  return results;
 }
 
 
@@ -286,11 +343,11 @@ export async function processSeedPhrasesAndFetchBalances(
   blockcypherApiKey?: string,
   alchemyApiKey?: string,
   blockstreamClientId?: string,
-  blockstreamClientSecret?: string
+  blockstreamClientSecret?: string,
+  cryptoApisApiKey?: string
 ): Promise<ProcessedWalletInfo[]> {
   const results: ProcessedWalletInfo[] = [];
 
-  // Outer try-catch for the entire processing logic of this action
   try {
     for (const phrase of seedPhrases) {
       let wallet: ethers.Wallet | null = null;
@@ -319,30 +376,30 @@ export async function processSeedPhrasesAndFetchBalances(
       }
 
       if (derivedAddress) {
-          // Etherscan
           if (etherscanApiKey) {
               const ethBalances = await fetchEtherscanBalance(derivedAddress, etherscanApiKey);
               allBalancesForPhrase.push(...ethBalances);
           }
-          // BlockCypher
           if (blockcypherApiKey) {
               const bcBalances = await fetchBlockcypherBalances(derivedAddress, blockcypherApiKey);
               allBalancesForPhrase.push(...bcBalances);
           }
-          // Alchemy
           if (alchemyApiKey) {
               const alchemyBalances = await fetchAlchemyBalances(derivedAddress, alchemyApiKey);
               allBalancesForPhrase.push(...alchemyBalances);
           }
-          // Blockstream (BTC)
           const btcBalances = await fetchBlockstreamBalance(derivedAddress, blockstreamClientId, blockstreamClientSecret); 
           allBalancesForPhrase.push(...btcBalances);
+
+          if (cryptoApisApiKey) {
+              const caBalances = await fetchCryptoApisBalances(derivedAddress, cryptoApisApiKey);
+              allBalancesForPhrase.push(...caBalances);
+          }
       }
       
       const positiveRealBalances = allBalancesForPhrase.filter(b => b.isRealData && b.balance > 0 && b.dataSource !== 'Error' && b.dataSource !== 'N/A');
       const apiErrorOccurred = allBalancesForPhrase.some(b => b.dataSource === 'Error');
       
-      // Only add to results if there are positive balances from real APIs and no derivation error
       if (positiveRealBalances.length > 0 && !derivationError) {
           results.push({
               seedPhrase: phrase,
@@ -353,17 +410,15 @@ export async function processSeedPhrasesAndFetchBalances(
               error: apiErrorOccurred ? "Positive balance(s) found, but some API calls may have failed for other assets." : null
           });
       } else {
-          // Log skipped phrases if no positive balances or if derivation failed (already handled by continue)
-          if (!derivationError) { // Only log if derivation didn't fail but no positive balances were found
+          if (!derivationError) { 
                // console.log(`Action: No positive balances found for seed phrase "${phrase.substring(0,20)}..." (Address: ${derivedAddress}). API errors: ${apiErrorOccurred}. Skipping.`);
           }
       }
     }
     return results;
   } catch (e: any) {
-    // Catch any truly unexpected errors in the main loop or setup
     console.error(`Critical unhandled error in processSeedPhrasesAndFetchBalances: ${e.message}`, e.stack);
-    // Return accumulated results or an empty array to prevent client "Failed to fetch"
-    return results; // Or return an empty array: return [];
+    return results; 
   }
 }
+

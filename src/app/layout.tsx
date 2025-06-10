@@ -10,6 +10,7 @@ export const metadata: Metadata = {
   description: "Audit balances for multiple seed phrases (Simulation)",
 };
 
+
 export default function RootLayout({
   children,
 }: Readonly<{

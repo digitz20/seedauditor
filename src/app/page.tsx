@@ -605,13 +605,11 @@ export default function Home() {
 
   useEffect(() => {
     // Load batch size first, as it's independent
-    let batchSizeForDisplayLogic = 100;
     const storedBatchSizeStr = localStorage.getItem(LOCAL_STORAGE_AUTO_GEN_BATCH_SIZE_KEY);
     if (storedBatchSizeStr) {
         const storedBatchSize = parseInt(storedBatchSizeStr, 10);
         if (!isNaN(storedBatchSize) && storedBatchSize >= 1 && storedBatchSize <= 100) {
             setNumSeedPhrasesToGenerate(storedBatchSize);
-            batchSizeForDisplayLogic = storedBatchSize;
         } else {
             setNumSeedPhrasesToGenerate(100); // Default if stored is invalid
         }
@@ -639,7 +637,7 @@ export default function Home() {
         setPhrasesInBatchDisplay(0);
         return; // Exit and do not start
     }
-    
+
     // Check for API keys
     const apiKeysAvailableOnMount =
       etherscanApiKeyInputRef.current?.trim() ||
@@ -659,22 +657,8 @@ export default function Home() {
         setPhrasesInBatchDisplay(0);
         return; // Exit and do not start
     }
-    
-    // Check if it was paused
-    const storedPausedStr = localStorage.getItem(LOCAL_STORAGE_GENERATION_PAUSED_KEY);
-    if (storedPausedStr === 'true') {
-        addLogMessage('Resuming session in a paused state.');
-        setCurrentGenerationStatus('Paused');
-        setIsAutoGenerating(true); // Is "active" in the background
-        setIsAutoGenerationPaused(true);
-        isAutoGeneratingRef.current = true;
-        isAutoGenerationPausedRef.current = true;
-        setPhrasesInBatchDisplay(batchSizeForDisplayLogic);
-        return; // Exit and do not start running
-    }
 
-    // If not stopped, has keys, and not paused, then start automatically.
-    addLogMessage('Auto-generation starting automatically...');
+    // If not stopped by the user and API keys are present, start or resume the session.
     startAutoGenerating(true); // true = is resuming/refresh scenario
 
   // eslint-disable-next-line react-hooks/exhaustive-deps

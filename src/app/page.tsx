@@ -612,14 +612,11 @@ export default function Home() {
         if (!isNaN(storedBatchSize) && storedBatchSize >= 1 && storedBatchSize <= 100) {
             setNumSeedPhrasesToGenerate(storedBatchSize);
             batchSizeForDisplayLogic = storedBatchSize;
-            console.log(`Loaded batch size from storage: ${storedBatchSize}`);
         } else {
             setNumSeedPhrasesToGenerate(100); // Default if stored is invalid
-            console.log(`Invalid batch size in storage, defaulting to ${batchSizeForDisplayLogic}.`);
         }
     } else {
         setNumSeedPhrasesToGenerate(100); // Default if nothing in storage
-        console.log(`No batch size in storage, using default: ${batchSizeForDisplayLogic}.`);
     }
 
     // Load checked count, it's useful regardless of state
@@ -629,7 +626,6 @@ export default function Home() {
         if (!isNaN(initialCheckedCount)) {
             setCheckedPhrasesCount(initialCheckedCount);
             checkedPhrasesCountRef.current = initialCheckedCount;
-            console.log(`Loaded session total checked from storage: ${initialCheckedCount}`);
         }
     }
 
@@ -678,15 +674,11 @@ export default function Home() {
     }
 
     // If not stopped, has keys, and not paused, then start automatically.
-    const startTimeout = setTimeout(() => {
-        addLogMessage('Auto-generation starting automatically...');
-        startAutoGenerating(true); // true = is resuming/refresh scenario
-    }, 100);
-
-    return () => clearTimeout(startTimeout);
+    addLogMessage('Auto-generation starting automatically...');
+    startAutoGenerating(true); // true = is resuming/refresh scenario
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addLogMessage, startAutoGenerating]);
+  }, []);
 
 
   useEffect(() => {
@@ -828,7 +820,7 @@ export default function Home() {
           </CardDescription>
         </CardHeader>
         <CardContent className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          <div className="space-y-3 lg:col-span-1 xl:col-span-1">
+          <div className="space-y-3 sm:col-span-2 lg:col-span-1 xl:col-span-1">
             <Textarea
               placeholder="Paste your seed phrases here, one per line..."
               value={seedPhrasesInput}
@@ -852,7 +844,7 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="space-y-4 lg:col-span-1 xl:col-span-1">
+          <div className="space-y-4">
              {/* Etherscan */}
             <div className="space-y-1">
                 <div className="relative">
@@ -920,7 +912,7 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="space-y-4 lg:col-span-1 xl:col-span-1">
+          <div className="space-y-4">
             {/* Alchemy */}
             <div className="space-y-1">
                 <div className="relative">
@@ -1008,7 +1000,7 @@ export default function Home() {
                 </Alert>
             </div>
           </div>
-          <div className="space-y-4 lg:col-span-1 xl:col-span-1">
+          <div className="space-y-4">
              {/* CryptoAPIs.io */}
              <div className="space-y-1">
                 <div className="relative">

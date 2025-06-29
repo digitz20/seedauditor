@@ -827,7 +827,7 @@ export default function Home() {
             Provide seed phrases (one per line, up to 1000) and your API credentials. At least one set of API credentials is needed for the automatic generator to find real balances.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        <CardContent className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           <div className="space-y-3 lg:col-span-1 xl:col-span-1">
             <Textarea
               placeholder="Paste your seed phrases here, one per line..."
@@ -1225,7 +1225,7 @@ export default function Home() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="text-center grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="text-center grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <p className="text-sm text-muted-foreground mb-1">PHRASES IN CURRENT BATCH</p>
               <p className="text-5xl font-bold text-primary">{phrasesInBatchDisplay}</p>

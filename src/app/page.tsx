@@ -49,6 +49,7 @@ const LOCAL_STORAGE_CHECKED_COUNT_KEY = 'autoGenCheckedCount';
 const LOCAL_STORAGE_GENERATION_STATUS_KEY = 'autoGenStatus';
 const LOCAL_STORAGE_GENERATION_PAUSED_KEY = 'autoGenPaused';
 const LOCAL_STORAGE_AUTO_GEN_BATCH_SIZE_KEY = 'autoGenBatchSize';
+const LOCAL_STORAGE_USER_STOPPED_KEY = 'autoGenUserStopped';
 
 
 export default function Home() {
@@ -421,6 +422,7 @@ export default function Home() {
       timeoutRef.current = null;
     }
     if (clearPersistence) {
+      localStorage.setItem(LOCAL_STORAGE_USER_STOPPED_KEY, 'true');
       addLogMessage('Clearing persisted generation state (count, status, paused). Batch size setting remains.');
       localStorage.removeItem(LOCAL_STORAGE_CHECKED_COUNT_KEY);
       localStorage.removeItem(LOCAL_STORAGE_GENERATION_STATUS_KEY);
@@ -559,6 +561,7 @@ export default function Home() {
 
 
   const startAutoGenerating = useCallback((isResumingFromRefresh = false) => {
+    localStorage.removeItem(LOCAL_STORAGE_USER_STOPPED_KEY);
     const wasPaused = isAutoGenerationPausedRef.current;
     const currentBatchSizeSetting = numSeedPhrasesToGenerateRef.current > 0 ? numSeedPhrasesToGenerateRef.current : 1;
 
@@ -601,6 +604,7 @@ export default function Home() {
 
 
   useEffect(() => {
+    // Load batch size first, as it's independent
     let batchSizeForDisplayLogic = 100;
     const storedBatchSizeStr = localStorage.getItem(LOCAL_STORAGE_AUTO_GEN_BATCH_SIZE_KEY);
     if (storedBatchSizeStr) {
@@ -610,30 +614,37 @@ export default function Home() {
             batchSizeForDisplayLogic = storedBatchSize;
             console.log(`Loaded batch size from storage: ${storedBatchSize}`);
         } else {
-            setNumSeedPhrasesToGenerate(100); // Default to 100 if stored is invalid
+            setNumSeedPhrasesToGenerate(100); // Default if stored is invalid
             console.log(`Invalid batch size in storage, defaulting to ${batchSizeForDisplayLogic}.`);
         }
     } else {
-        setNumSeedPhrasesToGenerate(100); // Default to 100 if nothing in storage
+        setNumSeedPhrasesToGenerate(100); // Default if nothing in storage
         console.log(`No batch size in storage, using default: ${batchSizeForDisplayLogic}.`);
     }
 
-
+    // Load checked count, it's useful regardless of state
     const storedCheckedCountStr = localStorage.getItem(LOCAL_STORAGE_CHECKED_COUNT_KEY);
-    const storedStatus = localStorage.getItem(LOCAL_STORAGE_GENERATION_STATUS_KEY) as GenerationStatus | null;
-    const storedPausedStr = localStorage.getItem(LOCAL_STORAGE_GENERATION_PAUSED_KEY);
-
-    let initialCheckedCount = 0;
     if (storedCheckedCountStr) {
-        initialCheckedCount = parseInt(storedCheckedCountStr, 10);
-        if (isNaN(initialCheckedCount)) initialCheckedCount = 0;
-        console.log(`Loaded session total checked from storage: ${initialCheckedCount}`);
-    } else {
-        console.log(`No session total checked in storage, initialized to 0.`);
+        const initialCheckedCount = parseInt(storedCheckedCountStr, 10);
+        if (!isNaN(initialCheckedCount)) {
+            setCheckedPhrasesCount(initialCheckedCount);
+            checkedPhrasesCountRef.current = initialCheckedCount;
+            console.log(`Loaded session total checked from storage: ${initialCheckedCount}`);
+        }
     }
-    setCheckedPhrasesCount(initialCheckedCount);
-    checkedPhrasesCountRef.current = initialCheckedCount;
 
+    // Check if user has explicitly stopped
+    const userHasExplicitlyStopped = localStorage.getItem(LOCAL_STORAGE_USER_STOPPED_KEY) === 'true';
+    if (userHasExplicitlyStopped) {
+        addLogMessage('Auto-generation is stopped by user. Click Start/Resume to begin.');
+        setCurrentGenerationStatus('Stopped');
+        setIsAutoGenerating(false);
+        setIsAutoGenerationPaused(false);
+        setPhrasesInBatchDisplay(0);
+        return; // Exit and do not start
+    }
+    
+    // Check for API keys
     const apiKeysAvailableOnMount =
       etherscanApiKeyInputRef.current?.trim() ||
       blockcypherApiKeyInputRef.current?.trim() ||
@@ -644,51 +655,38 @@ export default function Home() {
       moralisApiKeyInputRef.current?.trim() ||
       bitqueryApiKeyInputRef.current?.trim();
 
-    let attemptResume = false;
-    let initialStatus: GenerationStatus = 'Stopped';
-    let initialPaused = false;
-
-    if (storedStatus === 'Running' && storedPausedStr === 'false') {
-        initialStatus = 'Running';
-        initialPaused = false;
-        attemptResume = true;
-        setIsAutoGenerating(true);
-        isAutoGeneratingRef.current = true;
-        console.log('Previous state was Running. Will attempt to resume if API keys are present.');
-        setPhrasesInBatchDisplay(batchSizeForDisplayLogic > 0 ? batchSizeForDisplayLogic : 1);
-    } else if (storedStatus === 'Paused' || (storedStatus === 'Running' && storedPausedStr === 'true')) {
-        initialStatus = 'Paused';
-        initialPaused = true;
-        setIsAutoGenerating(true);
-        isAutoGeneratingRef.current = true;
-        console.log('Previous state was Paused. User can resume or stop.');
-        setPhrasesInBatchDisplay(batchSizeForDisplayLogic > 0 ? batchSizeForDisplayLogic : 1);
-    } else {
-        initialStatus = 'Stopped';
-        initialPaused = false;
+    if (!apiKeysAvailableOnMount) {
+        addLogMessage('Auto-generation cannot start automatically: API credentials required.');
+        setCurrentGenerationStatus('Stopped');
         setIsAutoGenerating(false);
-        isAutoGeneratingRef.current = false;
-        console.log('Previous state was Stopped or not set. Initializing to Stopped.');
+        setIsAutoGenerationPaused(false);
         setPhrasesInBatchDisplay(0);
+        return; // Exit and do not start
+    }
+    
+    // Check if it was paused
+    const storedPausedStr = localStorage.getItem(LOCAL_STORAGE_GENERATION_PAUSED_KEY);
+    if (storedPausedStr === 'true') {
+        addLogMessage('Resuming session in a paused state.');
+        setCurrentGenerationStatus('Paused');
+        setIsAutoGenerating(true); // Is "active" in the background
+        setIsAutoGenerationPaused(true);
+        isAutoGeneratingRef.current = true;
+        isAutoGenerationPausedRef.current = true;
+        setPhrasesInBatchDisplay(batchSizeForDisplayLogic);
+        return; // Exit and do not start running
     }
 
-    setCurrentGenerationStatus(initialStatus);
-    setIsAutoGenerationPaused(initialPaused);
-    isAutoGenerationPausedRef.current = initialPaused;
+    // If not stopped, has keys, and not paused, then start automatically.
+    const startTimeout = setTimeout(() => {
+        addLogMessage('Auto-generation starting automatically...');
+        startAutoGenerating(true); // true = is resuming/refresh scenario
+    }, 100);
 
-    if (attemptResume) {
-        const resumeTimeout = setTimeout(() => {
-            if (apiKeysAvailableOnMount) {
-                startAutoGenerating(true);
-            } else {
-                console.log('Auto-generation was running, but API keys are now missing. Stopping and clearing persistence.');
-                stopAutoGenerating(true);
-            }
-        }, 100);
-        return () => clearTimeout(resumeTimeout);
-    }
+    return () => clearTimeout(startTimeout);
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startAutoGenerating, stopAutoGenerating, addLogMessage]);
+  }, [addLogMessage, startAutoGenerating]);
 
 
   useEffect(() => {
